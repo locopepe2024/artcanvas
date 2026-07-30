@@ -8,6 +8,7 @@
     "local-codex-canvas",
     "uniart-video-parameters",
     "canvas-video-reference-assets",
-    "video-reference-index-contract"
+    "video-reference-index-contract",
+    "video-task-polling-contract"
   ]
 }

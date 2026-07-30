@@ -45,14 +45,34 @@ function aiHeaders(config: AiConfig, contentType?: string) {
 
 export async function requestVideoGeneration(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationResult> {
     const task = await createVideoGenerationTask(config, prompt, references, videoReferences, audioReferences, options);
-    const delayMs = task.provider === "seedance" ? 5000 : 2500;
+    return waitForVideoGenerationTask(config, task, options);
+}
+
+export async function waitForVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationResult> {
+    const pollDelayMs = task.provider === "seedance" ? 5000 : 2500;
+    let retryDelayMs = pollDelayMs;
     while (true) {
         if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
-        const state = await pollVideoGenerationTask(config, task, options);
+        let state: VideoGenerationTaskState;
+        try {
+            state = await pollVideoGenerationTask(config, task, options);
+            retryDelayMs = pollDelayMs;
+        } catch (error) {
+            if (!isRetryableVideoTaskQueryError(error) || options?.signal?.aborted) throw error;
+            await delay(retryDelayMs, options?.signal);
+            retryDelayMs = Math.min(15000, retryDelayMs * 2);
+            continue;
+        }
         if (state.status === "completed") return state.result;
         if (state.status === "failed") throw new Error(state.error);
-        await delay(delayMs, options?.signal);
+        await delay(pollDelayMs, options?.signal);
     }
+}
+
+export function isRetryableVideoTaskQueryError(error: unknown) {
+    const message = error instanceof Error ? error.message : String(error || "");
+    if (/鉴权失败|请求已取消/.test(message)) return false;
+    return /视频(?:任务)?查询失败|Seedance 任务查询失败|Network Error|Failed to fetch|ERR_NETWORK|timeout|请求被限流|接口没有返回视频任务|接口没有返回任务|provider response has no task data|unmarshal .*task data|[（(](408|409|425|429|5\d\d)[）)]/i.test(message);
 }
 
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {

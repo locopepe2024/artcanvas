@@ -15,7 +15,7 @@ import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceRefe
 import { getUniArtVideoCapability, resolveUniArtReferenceLimits } from "@/lib/uniart-video";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
-import { createVideoGenerationTask, pollVideoGenerationTask, storeGeneratedVideo, type VideoGenerationTask } from "@/services/api/video";
+import { createVideoGenerationTask, isRetryableVideoTaskQueryError, storeGeneratedVideo, waitForVideoGenerationTask, type VideoGenerationTask } from "@/services/api/video";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 import { modelOptionLabel, modelOptionName, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
@@ -69,8 +69,9 @@ type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => 
 const LOG_STORE_KEY = "infinite-canvas:video_generation_logs";
 const logStore = localforage.createInstance({ name: "infinite-canvas", storeName: "video_generation_logs" });
 
-function isLegacyPollingTimeout(log: GenerationLog) {
-    return log.status === "失败" && Boolean(log.task) && /^(Seedance )?视频生成超时，请稍后重试$/.test(log.error || "");
+function isRecoverablePollingFailure(log: GenerationLog) {
+    if (log.status !== "失败" || !log.task) return false;
+    return /^(Seedance )?视频生成超时，请稍后重试$/.test(log.error || "") || isRetryableVideoTaskQueryError(new Error(log.error || ""));
 }
 
 export default function VideoPage() {
@@ -388,7 +389,7 @@ export default function VideoPage() {
 
     const resumePendingLogs = (items: GenerationLog[]) => {
         for (const log of items) {
-            if (log.task && (log.status === "生成中" || isLegacyPollingTimeout(log))) void pollGenerationLog(log);
+            if (log.task && (log.status === "生成中" || isRecoverablePollingFailure(log))) void pollGenerationLog(log);
         }
     };
 
@@ -401,33 +402,26 @@ export default function VideoPage() {
         setResults((value) => (value.length ? value : [{ id: log.id, status: "pending" }]));
         const taskConfig = buildVideoConfig({ ...effectiveConfig, ...log.config }, task.model || log.model);
         try {
-            if (isLegacyPollingTimeout(log)) {
+            if (isRecoverablePollingFailure(log)) {
                 log = { ...log, status: "生成中", error: undefined };
                 await saveLog(log, false);
             }
-            while (true) {
-                const state = await pollVideoGenerationTask(configOverride || taskConfig, task);
-                if (state.status === "completed") {
-                    const stored = await storeGeneratedVideo(state.result);
-                    const nextVideo: GeneratedVideo = {
-                        id: nanoid(),
-                        url: stored.url,
-                        storageKey: stored.storageKey,
-                        durationMs: Date.now() - log.createdAt,
-                        width: stored.width || 1280,
-                        height: stored.height || 720,
-                        bytes: stored.bytes,
-                        mimeType: stored.mimeType,
-                    };
-                    setResults([{ id: nextVideo.id, status: "success", video: nextVideo }]);
-                    if (agentTaskId) updateAgentTask(agentTaskId, { status: "succeeded", successCount: 1, failCount: 0, error: undefined });
-                    await saveLog({ ...log, status: "成功", durationMs: nextVideo.durationMs, video: nextVideo, error: undefined });
-                    message.success("视频已生成");
-                    return;
-                }
-                if (state.status === "failed") throw new Error(state.error);
-                await delay(task.provider === "seedance" ? 5000 : 2500);
-            }
+            const result = await waitForVideoGenerationTask(configOverride || taskConfig, task);
+            const stored = await storeGeneratedVideo(result);
+            const nextVideo: GeneratedVideo = {
+                id: nanoid(),
+                url: stored.url,
+                storageKey: stored.storageKey,
+                durationMs: Date.now() - log.createdAt,
+                width: stored.width || 1280,
+                height: stored.height || 720,
+                bytes: stored.bytes,
+                mimeType: stored.mimeType,
+            };
+            setResults([{ id: nextVideo.id, status: "success", video: nextVideo }]);
+            if (agentTaskId) updateAgentTask(agentTaskId, { status: "succeeded", successCount: 1, failCount: 0, error: undefined });
+            await saveLog({ ...log, status: "成功", durationMs: nextVideo.durationMs, video: nextVideo, error: undefined });
+            message.success("视频已生成");
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "生成失败";
             setResults([{ id: log.id, status: "failed", error: errorMessage }]);
