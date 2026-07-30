@@ -2287,6 +2287,7 @@ function InfiniteCanvasPage() {
                             vquality: generationConfig.vquality,
                             generateAudio: generationConfig.videoGenerateAudio,
                             watermark: generationConfig.videoWatermark,
+                            videoReferenceMode: generationConfig.videoReferenceMode,
                             references: generationReferenceUrls(generationContext),
                         },
                     };
@@ -2321,6 +2322,7 @@ function InfiniteCanvasPage() {
                                               vquality: generationConfig.vquality,
                                               generateAudio: generationConfig.videoGenerateAudio,
                                               watermark: generationConfig.videoWatermark,
+                                              videoReferenceMode: generationConfig.videoReferenceMode,
                                               references: generationReferenceUrls(generationContext),
                                           },
                                       }
@@ -2526,6 +2528,7 @@ function InfiniteCanvasPage() {
                                           vquality: generationConfig.vquality,
                                           generateAudio: generationConfig.videoGenerateAudio,
                                           watermark: generationConfig.videoWatermark,
+                                          videoReferenceMode: generationConfig.videoReferenceMode,
                                       },
                                   }
                                 : item,

@@ -2,23 +2,24 @@ import { type ReactNode } from "react";
 import { Switch } from "antd";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
-import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
+import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { getUniArtVideoCapability, resolveUniArtVideoParams, type UniArtVideoCapability } from "@/lib/uniart-video";
+import { getUniArtVideoCapability, resolveUniArtReferenceMode, resolveUniArtVideoParams, supportedUniArtReferenceModes, type UniArtVideoCapability, type UniArtVideoReferenceMode } from "@/lib/uniart-video";
 import { modelCapabilityOf, modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const resolutionOptions = [
-    { value: "720", label: "720p" },
-    { value: "480", label: "480p" },
+    { value: "480p", label: "480p" },
+    { value: "720p", label: "720p" },
+    { value: "1080p", label: "1080p" },
+    { value: "4k", label: "4K" },
 ];
 
 const sizeOptions = [
-    { value: "1280x720", label: "横屏", width: 1280, height: 720 },
-    { value: "720x1280", label: "竖屏", width: 720, height: 1280 },
-    { value: "1024x1024", label: "方形", width: 1024, height: 1024 },
-    { value: "1792x1024", label: "宽屏", width: 1792, height: 1024 },
-    { value: "1024x1792", label: "长图", width: 1024, height: 1792 },
-    { value: "auto", label: "auto", width: 0, height: 0 },
+    { value: "16:9", label: "横屏" },
+    { value: "9:16", label: "竖屏" },
+    { value: "1:1", label: "方形" },
+    { value: "4:3", label: "横向 4:3" },
+    { value: "3:4", label: "竖向 3:4" },
 ];
 
 const secondOptions = [6, 10, 12, 16, 20];
@@ -29,7 +30,7 @@ export const videoSecondOptions = secondOptions.map((value) => String(value));
 
 type VideoSettingsPanelProps = {
     config: AiConfig;
-    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark", value: string) => void;
+    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoReferenceMode", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -46,51 +47,36 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     }
 
     const seconds = config.videoSeconds || "6";
-    const size = normalizeVideoSizeValue(config.size);
-    const dimensions = readSizeDimensions(size);
+    const size = normalizeVideoRatioValue(config.size);
     const resolution = normalizeVideoResolutionValue(config.vquality);
-    const updateDimension = (key: "width" | "height", value: number | null) => {
-        const next = Math.max(1, Math.floor(value || dimensions[key] || 720));
-        onConfigChange("size", `${key === "width" ? next : dimensions.width}x${key === "height" ? next : dimensions.height}`);
-    };
 
     return (
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
                 <SettingGroup title="清晰度" color={theme.node.muted}>
-                    <div className="grid grid-cols-3 gap-2.5">
+                    <div className="grid grid-cols-4 gap-2.5">
                         {resolutionOptions.map((item) => (
                             <OptionPill key={item.value} selected={resolution === item.value} theme={theme} onClick={() => onConfigChange("vquality", item.value)}>
                                 {item.label}
                             </OptionPill>
                         ))}
-                        <ResolutionInput value={resolution} theme={theme} onChange={(value) => onConfigChange("vquality", value)} />
                     </div>
                 </SettingGroup>
-                <SettingGroup title="尺寸" color={theme.node.muted}>
-                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5">
-                        <DimensionInput prefix="W" value={dimensions.width} disabled={size === "auto"} theme={theme} onChange={(value) => updateDimension("width", value)} />
-                        <span className="text-lg opacity-45">↔</span>
-                        <DimensionInput prefix="H" value={dimensions.height} disabled={size === "auto"} theme={theme} onChange={(value) => updateDimension("height", value)} />
-                    </div>
+                <SettingGroup title="比例" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
                         {sizeOptions.map((item) => (
                             <button
                                 key={item.value}
                                 type="button"
-                                className="flex h-[78px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent text-sm transition hover:opacity-80"
+                                className="flex h-[68px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent text-sm transition hover:opacity-80"
                                 style={{ borderColor: size === item.value ? theme.node.text : theme.node.stroke, color: theme.node.text }}
                                 onMouseDown={(event) => event.stopPropagation()}
                                 onClick={() => onConfigChange("size", item.value)}
                             >
-                                <SizePreview width={item.width} height={item.height} color={theme.node.text} />
+                                <SizePreview width={ratioPreview(item.value).width} height={ratioPreview(item.value).height} color={theme.node.text} />
                                 <span>{item.label}</span>
-                                {item.value === "auto" ? null : (
-                                    <span className="text-[11px] leading-none opacity-55">
-                                        {item.value}
-                                    </span>
-                                )}
+                                <span className="text-[11px] leading-none opacity-55">{item.value}</span>
                             </button>
                         ))}
                     </div>
@@ -159,6 +145,10 @@ function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, cl
                         ))}
                     </div>
                 </SettingGroup>
+                <div className="text-xs leading-5" style={{ color: theme.node.muted }}>
+                    具体可用档位仍以所选视频服务的模型能力为准。
+                </div>
+                <ReferenceModeSettings capability={capability} value={config.videoReferenceMode} theme={theme} onChange={(value) => onConfigChange("videoReferenceMode", value)} />
             </div>
         </ImageSettingsTheme>
     );
@@ -197,7 +187,7 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                             >
                                 <SizePreview width={ratioPreview(item.value).width} height={ratioPreview(item.value).height} color={theme.node.text} />
                                 <span>{item.label}</span>
-                                <span className="text-[10px] leading-none opacity-55">{item.value === "adaptive" ? "adaptive" : seedancePixelLabel(resolution, item.value)}</span>
+                                <span className="text-[10px] leading-none opacity-55">{item.value === "adaptive" ? "自动匹配" : item.value}</span>
                             </button>
                         ))}
                     </div>
@@ -223,6 +213,42 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
     );
 }
 
+const referenceModeLabels: Record<UniArtVideoReferenceMode, { title: string; description: string }> = {
+    image_to_video: { title: "图生视频", description: "单张图片作为主体或起始画面" },
+    image_reference: { title: "图片参考", description: "多张图片提供人物、商品或风格参考" },
+    first_last_frames: { title: "首尾帧", description: "按顺序使用第 1 张和第 2 张图片" },
+    omni_reference: { title: "全能参考", description: "组合图片、视频和音频素材" },
+};
+
+function ReferenceModeSettings({ capability, value, theme, onChange }: { capability: UniArtVideoCapability; value: string; theme: CanvasTheme; onChange: (value: UniArtVideoReferenceMode) => void }) {
+    const modes = supportedUniArtReferenceModes(capability);
+    const selected = resolveUniArtReferenceMode(capability, value);
+    return (
+        <SettingGroup title="参考方式" color={theme.node.muted}>
+            <div className="grid grid-cols-2 gap-2.5">
+                {modes.map((mode) => (
+                    <button
+                        key={mode}
+                        type="button"
+                        className="min-h-[68px] cursor-pointer rounded-xl border bg-transparent px-3 py-2 text-left transition hover:opacity-80"
+                        style={{ borderColor: selected === mode ? theme.node.text : theme.node.stroke, color: theme.node.text }}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onClick={() => onChange(mode)}
+                    >
+                        <span className="block text-sm font-medium">{referenceModeLabels[mode].title}</span>
+                        <span className="mt-1 block text-[11px] leading-4" style={{ color: theme.node.muted }}>
+                            {referenceModeLabels[mode].description}
+                        </span>
+                    </button>
+                ))}
+            </div>
+            <div className="text-[11px] leading-4" style={{ color: theme.node.muted }}>
+                当前模型最多支持 {capability.references.maxImages} 张图片、{capability.references.maxVideos} 个视频、{capability.references.maxAudios} 个音频。
+            </div>
+        </SettingGroup>
+    );
+}
+
 export function videoResolutionLabel(value: string) {
     return resolutionTokenLabel(value);
 }
@@ -242,20 +268,45 @@ export function videoSecondsLabel(value: string) {
 }
 
 export function normalizeVideoSizeValue(value: string) {
-    if (value === "auto") return "auto";
-    if (/^\d+x\d+$/.test(value || "")) return value;
-    return ["9:16", "2:3", "3:4"].includes(value) ? "720x1280" : "1280x720";
+    return normalizeVideoRatioValue(value);
+}
+
+export function normalizeVideoRatioValue(value: string) {
+    if (["16:9", "9:16", "1:1", "4:3", "3:4"].includes(value)) return value;
+    const match = value.match(/^(\d+)x(\d+)$/i);
+    if (match) {
+        const width = Number(match[1]);
+        const height = Number(match[2]);
+        const ratio = width / height;
+        if (Math.abs(ratio - 1) < 0.05) return "1:1";
+        if (Math.abs(ratio - 4 / 3) < 0.08) return "4:3";
+        if (Math.abs(ratio - 3 / 4) < 0.08) return "3:4";
+        return width > height ? "16:9" : "9:16";
+    }
+    return "16:9";
 }
 
 export function normalizeVideoResolutionValue(value: string) {
-    if (value === "480p" || value === "low") return "480";
-    if (value === "720p" || value === "auto" || value === "high" || value === "medium") return "720";
-    return value.replace(/p$/i, "") || "720";
+    const normalized = String(value || "")
+        .trim()
+        .toLowerCase();
+    if (normalized === "low" || normalized === "480" || normalized === "480p") return "480p";
+    if (["auto", "high", "medium", "720", "720p"].includes(normalized)) return "720p";
+    if (normalized === "1080" || normalized === "1080p") return "1080p";
+    if (normalized === "4k" || normalized === "2160" || normalized === "2160p") return "4k";
+    return "720p";
 }
 
 function OptionPill({ selected, disabled = false, theme, onClick, children }: { selected: boolean; disabled?: boolean; theme: CanvasTheme; onClick: () => void; children: ReactNode }) {
     return (
-        <button type="button" disabled={disabled} className="h-9 cursor-pointer rounded-full border px-2 text-sm transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-35" style={{ background: "transparent", borderColor: selected ? theme.node.text : theme.node.stroke, color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()} onClick={onClick}>
+        <button
+            type="button"
+            disabled={disabled}
+            className="h-9 cursor-pointer rounded-full border px-2 text-sm transition hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-35"
+            style={{ background: "transparent", borderColor: selected ? theme.node.text : theme.node.stroke, color: theme.node.text }}
+            onMouseDown={(event) => event.stopPropagation()}
+            onClick={onClick}
+        >
             {children}
         </button>
     );
@@ -272,30 +323,19 @@ function SettingGroup({ title, color, children }: { title: string; color: string
     );
 }
 
-function ResolutionInput({ value, theme, onChange }: { value: string; theme: CanvasTheme; onChange: (value: string) => void }) {
-    return (
-        <label className="flex h-9 overflow-hidden rounded-full border text-sm" style={{ borderColor: theme.node.stroke, color: theme.node.text }}>
-            <input type="number" min={1} className="min-w-0 flex-1 bg-transparent px-3 text-center outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={value} onChange={(event) => onChange(event.target.value)} onMouseDown={(event) => event.stopPropagation()} />
-            <span className="grid w-7 place-items-center pr-1" style={{ color: theme.node.muted }}>
-                p
-            </span>
-        </label>
-    );
-}
-
-function DimensionInput({ prefix, value, disabled, theme, onChange }: { prefix: string; value: number; disabled: boolean; theme: CanvasTheme; onChange: (value: number | null) => void }) {
-    return (
-        <label className="flex h-9 overflow-hidden rounded-xl text-sm" style={{ background: theme.node.fill, color: theme.node.text, opacity: disabled ? 0.55 : 1 }}>
-            <span className="grid w-9 place-items-center" style={{ color: theme.node.muted }}>
-                {prefix}
-            </span>
-            <input type="number" min={1} disabled={disabled} className="min-w-0 flex-1 bg-transparent px-2 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={value || ""} onChange={(event) => onChange(Number(event.target.value) || null)} onMouseDown={(event) => event.stopPropagation()} />
-        </label>
-    );
-}
-
 function NumberInput({ value, min, max, theme, onChange }: { value: string; min: number; max: number; theme: CanvasTheme; onChange: (value: string) => void }) {
-    return <input type="number" min={min} max={max} className="h-9 rounded-full border bg-transparent px-3 text-center text-sm outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" style={{ borderColor: theme.node.stroke, color: theme.node.text, WebkitTextFillColor: theme.node.text }} value={value} onChange={(event) => onChange(event.target.value)} onMouseDown={(event) => event.stopPropagation()} />;
+    return (
+        <input
+            type="number"
+            min={min}
+            max={max}
+            className="h-9 rounded-full border bg-transparent px-3 text-center text-sm outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+            style={{ borderColor: theme.node.stroke, color: theme.node.text, WebkitTextFillColor: theme.node.text }}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            onMouseDown={(event) => event.stopPropagation()}
+        />
+    );
 }
 
 function SizePreview({ width, height, color }: { width: number; height: number; color: string }) {
@@ -323,8 +363,10 @@ function videoRatioLabel(value: string) {
 
 function resolutionTokenLabel(value: string) {
     const normalized = String(value || "720").trim();
+    if (/^4k$/i.test(normalized)) return "4K";
     if (/^\d+(?:p|k)$/i.test(normalized)) return normalized.toLowerCase();
-    return `${normalizeVideoResolutionValue(normalized)}p`;
+    const canonical = normalizeVideoResolutionValue(normalized);
+    return canonical === "4k" ? "4K" : canonical;
 }
 
 function SwitchRow({ label, checked, theme, onChange }: { label: string; checked: boolean; theme: CanvasTheme; onChange: (checked: boolean) => void }) {
@@ -338,10 +380,4 @@ function SwitchRow({ label, checked, theme, onChange }: { label: string; checked
             </span>
         </div>
     );
-}
-
-function readSizeDimensions(size: string) {
-    if (size === "auto") return { width: 0, height: 0 };
-    const match = size.match(/^(\d+)x(\d+)$/);
-    return { width: Number(match?.[1]) || 1280, height: Number(match?.[2]) || 720 };
 }

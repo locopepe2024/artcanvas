@@ -1,0 +1,48 @@
+---
+title: Canvas 视频参考素材边界
+description: 浏览器本地参考素材的短期公网访问设计
+---
+
+# Canvas 视频参考素材边界
+
+## 目标
+
+视频创作台和画布视频节点选择浏览器本地图片、视频或音频后，由 ArtCanvas 自己提供短期公网 URL，再把 URL 写入 UniArt 视频任务。UniArt 只负责模型路由、任务提交和状态查询，不保存 Canvas 素材。
+
+## 所有权边界
+
+- 浏览器继续使用 IndexedDB 保存用户的长期本地素材。
+- ArtCanvas 临时素材服务只保存本次生成需要被上游模型读取的副本。
+- UniArt 请求只接收 `https://canvas.uniart.fun/assets/...` URL，不提供 Canvas 素材上传接口。
+- 上游模型读取 URL 不需要 Canvas 登录态，因此 URL 必须使用不可猜的随机标识并自动过期。
+
+## 接口
+
+### `POST /api/video-assets`
+
+- 请求：`multipart/form-data`，文件字段名为 `file`。
+- 响应：`id`、同源公开 `path` 和 Unix 秒级 `expires_at`。
+- 允许图片、视频和音频；图片最大 30 MiB、视频最大 200 MiB、音频最大 15 MiB。
+- 按客户端 IP 限流，并在写入前检查临时素材目录总容量。
+
+### `GET /assets/:asset_id`
+
+- 无需鉴权，供视频模型供应商读取。
+- 支持标准 HTTP Range 请求。
+- 素材保存 24 小时，过期后返回 404 并删除文件。
+- 返回实际媒体类型、`nosniff` 和不超过剩余有效期的公开缓存头。
+
+## 部署边界
+
+- ArtCanvas 镜像内同时运行 Nginx 静态站点和只监听容器回环地址的素材服务。
+- Nginx 同源代理上传与读取路径，素材服务不直接暴露端口。
+- `/data/video-assets` 使用 ArtCanvas 独立持久卷，不与 UniArt 数据目录共享。
+- 可通过 `VIDEO_ASSET_TTL`、`VIDEO_ASSET_MAX_TOTAL_BYTES` 和 `VIDEO_ASSET_UPLOADS_PER_HOUR` 调整有效期、容量和限流。
+
+## 成功条件
+
+1. 本地图片、视频和音频可上传并返回 `canvas.uniart.fun` 同源 URL。
+2. 未携带任何 UniArt API Key 的公开 GET 可以读取素材。
+3. 视频任务 metadata 只包含 Canvas 公网 URL，不包含 `blob:`、`data:` 或 IndexedDB key。
+4. 过期、超限、类型不支持和频率超限均失败关闭。
+5. 验证过程不提交付费视频生成任务。

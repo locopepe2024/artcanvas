@@ -5,7 +5,7 @@ import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { resolveUniArtVideoParams } from "@/lib/uniart-video";
+import { resolveUniArtReferenceLimits, resolveUniArtVideoParams, type UniArtVideoCapability } from "@/lib/uniart-video";
 import { buildApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/types/image";
@@ -64,10 +64,10 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     if (isSeedanceVideoConfig(requestConfig)) {
         return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     }
-    if (videoReferences.length || audioReferences.length) {
+    if (!resolveUniArtVideoParams(selectedModel, { seconds: requestConfig.videoSeconds, ratio: requestConfig.size, resolution: requestConfig.vquality }) && (videoReferences.length || audioReferences.length)) {
         throw new Error("当前视频接口不支持参考视频或参考音频，请切换到 Seedance 2.0 / 火山 Agent Plan 模型，或移除参考资产");
     }
-    return createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, options);
+    return createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
 }
 
 export async function pollVideoGenerationTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
@@ -131,21 +131,29 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
     throw new Error("视频接口没有返回可播放的视频");
 }
 
-async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
+async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const requestModel = modelOptionName(model);
     const uniArtParams = resolveUniArtVideoParams(requestModel, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality });
+    if (uniArtParams) {
+        try {
+            const metadata = await buildUniArtVideoMetadata(config, uniArtParams.capability, uniArtParams.ratio, uniArtParams.resolution, references, videoReferences, audioReferences, options);
+            const created = unwrapVideoResponse(
+                (await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), { model: requestModel, prompt, seconds: String(uniArtParams.seconds), metadata }, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data,
+            );
+            if (!created.id) throw new Error("视频接口没有返回任务 ID");
+            return { id: created.id, provider: "openai", model };
+        } catch (error) {
+            throw new Error(readAxiosError(error, "视频任务创建失败"));
+        }
+    }
+
     const body = new FormData();
     body.append("model", requestModel);
     body.append("prompt", prompt);
-    body.append("seconds", String(uniArtParams?.seconds || normalizeVideoSeconds(config.videoSeconds)));
-    if (uniArtParams) {
-        body.append("ratio", uniArtParams.ratio);
-        if (uniArtParams.resolution) body.append("resolution", uniArtParams.resolution);
-    } else {
-        if (normalizeVideoSize(config.size)) body.append("size", normalizeVideoSize(config.size)!);
-        body.append("resolution_name", normalizeVideoResolution(config.vquality));
-        body.append("preset", "normal");
-    }
+    body.append("seconds", String(normalizeVideoSeconds(config.videoSeconds)));
+    body.append("size", genericVideoPixelSize(config.vquality, config.size));
+    body.append("resolution_name", normalizeVideoResolution(config.vquality));
+    body.append("preset", "normal");
     const files = await Promise.all(references.slice(0, 7).map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
     files.forEach((file) => body.append("input_reference[]", file));
     try {
@@ -155,6 +163,83 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     } catch (error) {
         throw new Error(readAxiosError(error, "视频任务创建失败"));
     }
+}
+
+async function buildUniArtVideoMetadata(
+    config: AiConfig,
+    capability: UniArtVideoCapability,
+    ratio: string,
+    resolution: string | undefined,
+    references: ReferenceImage[],
+    videoReferences: ReferenceVideo[],
+    audioReferences: ReferenceAudio[],
+    options?: RequestOptions,
+) {
+    const limits = resolveUniArtReferenceLimits(capability, config.videoReferenceMode);
+    const mode = limits.mode;
+    const hasReferences = references.length + videoReferences.length + audioReferences.length > 0;
+    if (!hasReferences) return { ratio, ...(resolution ? { resolution } : {}) };
+    if (references.length > limits.maxImages) throw new Error(`当前参考方式最多支持 ${limits.maxImages} 张参考图片`);
+    if (videoReferences.length > limits.maxVideos) throw new Error("参考视频只能用于当前模型支持的全能参考模式");
+    if (audioReferences.length > limits.maxAudios) throw new Error("参考音频只能用于当前模型支持的全能参考模式");
+    if (mode === "image_to_video" && references.length !== 1) throw new Error("图生视频模式需要且只能使用 1 张图片");
+    if (mode === "image_reference" && !references.length) throw new Error("图片参考模式至少需要 1 张图片");
+    if (mode === "first_last_frames" && (references.length !== 2 || videoReferences.length || audioReferences.length)) throw new Error("首尾帧模式需要且只能使用 2 张图片，第 1 张为首帧，第 2 张为尾帧");
+    if (capability.family === "meai" && videoReferences.some((item) => !item.durationMs || item.durationMs <= 0)) throw new Error("MEAI 参考视频缺少可读取的时长，请重新上传视频文件");
+
+    const [imageURLs, videoURLs, audioURLs] = await Promise.all([
+        Promise.all(references.map(async (image) => uploadCanvasVideoAsset(await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) }), options))),
+        Promise.all(videoReferences.map(async (video) => uploadCanvasVideoAsset(await referenceMediaFile(video), options))),
+        Promise.all(audioReferences.map(async (audio) => uploadCanvasVideoAsset(await referenceMediaFile(audio), options))),
+    ]);
+
+    if (capability.family === "globalai") {
+        const content: Array<Record<string, unknown>> = [];
+        if (mode === "first_last_frames") {
+            content.push({ type: "image_url", role: "first_frame", image_url: { url: imageURLs[0] } }, { type: "image_url", role: "last_frame", image_url: { url: imageURLs[1] } });
+        } else {
+            imageURLs.forEach((url) => content.push({ type: "image_url", role: "reference_image", image_url: { url } }));
+            videoURLs.forEach((url) => content.push({ type: "video_url", role: "reference_video", video_url: { url } }));
+            audioURLs.forEach((url) => content.push({ type: "audio_url", role: "reference_audio", audio_url: { url } }));
+        }
+        return { ratio, ...(resolution ? { resolution } : {}), content };
+    }
+    if (mode === "first_last_frames") return { ratio, ...(resolution ? { resolution } : {}), mode: "frames", first_frame_url: imageURLs[0], last_frame_url: imageURLs[1] };
+    return {
+        ratio,
+        ...(resolution ? { resolution } : {}),
+        mode: "references",
+        image_urls: imageURLs,
+        video_urls: videoURLs,
+        audio_urls: audioURLs,
+        ...(videoURLs.length ? { input_video_duration: Math.ceil(videoReferences.reduce((total, item) => total + (item.durationMs || 0), 0) / 1000) } : {}),
+    };
+}
+
+async function uploadCanvasVideoAsset(file: File, options?: RequestOptions) {
+    const body = new FormData();
+    body.append("file", file);
+    const response = await axios.post<{ path?: string }>("/api/video-assets", body, { signal: options?.signal });
+    if (!response.data.path) throw new Error("参考素材上传接口没有返回访问地址");
+    return new URL(response.data.path, window.location.origin).toString();
+}
+
+async function referenceMediaFile(reference: ReferenceVideo | ReferenceAudio) {
+    const blob = reference.storageKey ? await getMediaBlob(reference.storageKey) : await (await fetch(reference.url)).blob();
+    if (!blob) throw new Error(`参考素材 ${reference.name} 已丢失，请重新上传`);
+    return new File([blob], reference.name, { type: reference.type || blob.type || "application/octet-stream" });
+}
+
+function genericVideoPixelSize(resolution: string, ratio: string) {
+    const tier = normalizeVideoResolution(resolution).toLowerCase().replace(/p$/, "");
+    const long = tier === "4k" ? 3840 : tier === "1080" ? 1920 : tier === "480" ? 854 : 1280;
+    const short = tier === "4k" ? 2160 : tier === "1080" ? 1080 : tier === "480" ? 480 : 720;
+    const normalizedRatio = ["16:9", "9:16", "1:1", "4:3", "3:4"].includes(ratio) ? ratio : "16:9";
+    if (normalizedRatio === "9:16") return `${short}x${long}`;
+    if (normalizedRatio === "1:1") return `${short}x${short}`;
+    if (normalizedRatio === "4:3") return `${Math.round((short * 4) / 3)}x${short}`;
+    if (normalizedRatio === "3:4") return `${short}x${Math.round((short * 4) / 3)}`;
+    return `${long}x${short}`;
 }
 
 async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
@@ -315,7 +400,9 @@ function normalizeVideoSize(value: string) {
 function normalizeVideoResolution(value: string) {
     if (value === "low") return "480p";
     if (value === "auto" || value === "high" || value === "medium") return "720p";
-    const resolution = value.replace(/p$/i, "") || "720";
+    const normalized = value.trim().toLowerCase();
+    if (/^\d+k$/.test(normalized)) return normalized;
+    const resolution = normalized.replace(/p$/i, "") || "720";
     return `${resolution}p`;
 }
 
@@ -357,17 +444,8 @@ function readApiErrorMessage(value: unknown): string {
     if (typeof value !== "object") return "";
     const payload = value as { msg?: unknown; message?: unknown; error?: unknown; detail?: unknown };
     // error 可能是字符串或含 message 的对象
-    const errorMsg =
-        typeof payload.error === "string"
-            ? payload.error
-            : (payload.error as { message?: unknown })?.message;
-    return (
-        readApiErrorMessage(payload.msg) ||
-        readApiErrorMessage(payload.message) ||
-        readApiErrorMessage(errorMsg) ||
-        readApiErrorMessage(payload.detail) ||
-        ""
-    );
+    const errorMsg = typeof payload.error === "string" ? payload.error : (payload.error as { message?: unknown })?.message;
+    return readApiErrorMessage(payload.msg) || readApiErrorMessage(payload.message) || readApiErrorMessage(errorMsg) || readApiErrorMessage(payload.detail) || "";
 }
 
 function readAxiosError(error: unknown, fallback: string) {

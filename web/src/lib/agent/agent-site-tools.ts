@@ -187,11 +187,12 @@ function getVideoConfig() {
         current: {
             model,
             modelName: modelOptionName(model),
-            size: config.size || "1280x720",
+            size: config.size || "16:9",
             seconds: config.videoSeconds || "6",
-            resolution: config.vquality || "720",
+            resolution: config.vquality || "720p",
             generateAudio: config.videoGenerateAudio !== "false",
             watermark: config.videoWatermark === "true",
+            referenceMode: config.videoReferenceMode || "image_reference",
         },
         models: selectableModelsByCapability(config, "video").map((value) => ({ value, label: modelOptionLabel(config, value) })),
         sizeOptions: videoSizeOptions,
@@ -227,6 +228,10 @@ function runVideoWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
     if (typeof input.watermark === "boolean") {
         configStore.updateConfig("videoWatermark", String(input.watermark));
         applied.watermark = input.watermark;
+    }
+    if (["image_to_video", "image_reference", "first_last_frames", "omni_reference"].includes(String(input.referenceMode))) {
+        configStore.updateConfig("videoReferenceMode", input.referenceMode as "image_to_video" | "image_reference" | "first_last_frames" | "omni_reference");
+        applied.referenceMode = input.referenceMode;
     }
     const prompt = typeof input.prompt === "string" ? input.prompt : undefined;
     const run = input.run !== false;

@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 export type ApiCallFormat = "openai" | "gemini" | "ark";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
+export type VideoReferenceMode = "image_to_video" | "image_reference" | "first_last_frames" | "omni_reference";
 
 export type ChannelModel = {
     name: string;
@@ -41,6 +42,7 @@ export type AiConfig = {
     vquality: string;
     videoGenerateAudio: string;
     videoWatermark: string;
+    videoReferenceMode: VideoReferenceMode;
     systemPrompt: string;
     reasoningEffort: ReasoningEffort;
     models: string[];
@@ -99,6 +101,7 @@ export const defaultConfig: AiConfig = {
     vquality: "720",
     videoGenerateAudio: "true",
     videoWatermark: "false",
+    videoReferenceMode: "image_reference",
     systemPrompt: "",
     reasoningEffort: "auto",
     models: ["default::gpt-image-2", "default::grok-imagine-video", "default::gpt-5.5", "default::gpt-4o-mini-tts"],
@@ -244,6 +247,7 @@ export const useConfigStore = create<ConfigStore>()(
                         vquality: config.vquality || "720",
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
+                        videoReferenceMode: config.videoReferenceMode || "image_reference",
                         canvasImageCount: config.canvasImageCount || "3",
                     },
                 };
