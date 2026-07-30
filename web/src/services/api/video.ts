@@ -152,10 +152,16 @@ function videoPluginResult(result: unknown): VideoGenerationResult {
 export async function storeGeneratedVideo(result: VideoGenerationResult): Promise<UploadedFile> {
     if (result.blob) return uploadMediaFile(result.blob, "video");
     if (result.url) {
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 10000);
         try {
-            return await uploadMediaFile(result.url, "video");
+            const response = await fetch(result.url, { signal: controller.signal });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            return await uploadMediaFile(await response.blob(), "video");
         } catch {
             return { url: result.url, storageKey: "", bytes: 0, mimeType: result.mimeType || "video/mp4" };
+        } finally {
+            window.clearTimeout(timeout);
         }
     }
     throw new Error("视频接口没有返回可播放的视频");
@@ -398,14 +404,8 @@ async function resolveSeedanceAudioUrl(audio: ReferenceAudio) {
 }
 
 async function videoResultFromUrl(url: string, options?: RequestOptions): Promise<VideoGenerationResult> {
-    try {
-        const response = await axios.get<Blob>(url, { responseType: "blob", signal: options?.signal });
-        await assertVideoBlob(response.data);
-        return { blob: response.data };
-    } catch (error) {
-        if (axios.isCancel(error) || options?.signal?.aborted) throw error;
-        return { url, mimeType: "video/mp4" };
-    }
+    if (options?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    return { url, mimeType: "video/mp4" };
 }
 
 function assertVideoConfig(config: AiConfig, model: string) {

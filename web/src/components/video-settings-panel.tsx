@@ -31,14 +31,15 @@ export const videoSecondOptions = secondOptions.map((value) => String(value));
 
 type VideoSettingsPanelProps = {
     config: AiConfig;
+    model?: string;
     onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoReferenceMode", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
 };
 
-export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5" }: VideoSettingsPanelProps) {
-    const selectedModel = modelOptionName(modelCapabilityOf(config, config.model) === "video" ? config.model : config.videoModel || config.model);
+export function VideoSettingsPanel({ config, model, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5" }: VideoSettingsPanelProps) {
+    const selectedModel = modelOptionName(model || (modelCapabilityOf(config, config.model) === "video" ? config.model : config.videoModel || config.model));
     const uniArtCapability = getUniArtVideoCapability(selectedModel);
     if (uniArtCapability) {
         return <UniArtVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} model={selectedModel} capability={uniArtCapability} />;
