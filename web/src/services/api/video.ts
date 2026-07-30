@@ -33,6 +33,7 @@ type SeedanceTask = {
     video_url?: string;
 };
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string; error?: { message?: string } };
+type StoredVideoTask = { task_id?: string; status?: string; fail_reason?: string; result_url?: string };
 type RequestOptions = { signal?: AbortSignal };
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
@@ -291,7 +292,38 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
         if (video.status === "failed" || video.status === "cancelled") return { status: "failed", error: readApiErrorMessage(video.error?.message) || "视频生成失败" };
         return { status: "pending" };
     } catch (error) {
+        if (!axios.isCancel(error) && !options?.signal?.aborted && axios.isAxiosError(error) && (error.response?.status || 0) >= 500) {
+            const storedState = await pollStoredVideoTask(config, task, options);
+            if (storedState) return storedState;
+        }
         throw new Error(readAxiosError(error, "视频任务查询失败"));
+    }
+}
+
+async function pollStoredVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState | null> {
+    try {
+        const payload = (await axios.get<{ code?: string; data?: StoredVideoTask | null }>(aiApiUrl(config, `/video/generations/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data;
+        if (payload?.code !== "success" || !payload.data) return null;
+        const status = String(payload.data.status || "").toUpperCase();
+        if (status === "SUCCESS") {
+            const resultUrl = payload.data.result_url?.trim();
+            if (!resultUrl) return { status: "failed", error: "视频任务已完成，但持久任务记录没有结果地址" };
+            return { status: "completed", result: { url: resolveStoredVideoResultUrl(config, resultUrl), mimeType: "video/mp4" } };
+        }
+        if (status === "FAILURE") return { status: "failed", error: payload.data.fail_reason || "视频生成失败" };
+        return { status: "pending" };
+    } catch (error) {
+        if (axios.isCancel(error) || options?.signal?.aborted) throw error;
+        return null;
+    }
+}
+
+function resolveStoredVideoResultUrl(config: AiConfig, resultUrl: string) {
+    if (isPublicMediaUrl(resultUrl)) return resultUrl;
+    try {
+        return new URL(resultUrl, config.baseUrl).toString();
+    } catch {
+        return resultUrl;
     }
 }
 

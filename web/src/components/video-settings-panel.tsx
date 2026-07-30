@@ -36,13 +36,14 @@ type VideoSettingsPanelProps = {
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
+    showReferenceModes?: boolean;
 };
 
-export function VideoSettingsPanel({ config, model, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5" }: VideoSettingsPanelProps) {
+export function VideoSettingsPanel({ config, model, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", showReferenceModes = true }: VideoSettingsPanelProps) {
     const selectedModel = modelOptionName(model || (modelCapabilityOf(config, config.model) === "video" ? config.model : config.videoModel || config.model));
     const uniArtCapability = getUniArtVideoCapability(selectedModel);
     if (uniArtCapability) {
-        return <UniArtVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} model={selectedModel} capability={uniArtCapability} />;
+        return <UniArtVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} model={selectedModel} capability={uniArtCapability} showReferenceModes={showReferenceModes} />;
     }
     if (isSeedanceVideoConfig(config)) {
         return <SeedanceVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
@@ -89,7 +90,7 @@ export function VideoSettingsPanel({ config, model, onConfigChange, theme, showT
     );
 }
 
-function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className, model, capability }: VideoSettingsPanelProps & { model: string; capability: UniArtVideoCapability }) {
+function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className, model, capability, showReferenceModes }: VideoSettingsPanelProps & { model: string; capability: UniArtVideoCapability }) {
     const params = resolveUniArtVideoParams(model, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality });
     if (!params) return null;
 
@@ -97,7 +98,7 @@ function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, cl
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
-                <ReferenceModeSettings capability={capability} value={config.videoReferenceMode} theme={theme} onChange={(value) => onConfigChange("videoReferenceMode", value)} />
+                {showReferenceModes ? <ReferenceModeSettings capability={capability} value={config.videoReferenceMode} theme={theme} onChange={(value) => onConfigChange("videoReferenceMode", value)} /> : null}
                 {capability.resolutions?.length ? (
                     <SettingGroup title="分辨率" color={theme.node.muted}>
                         <div className="grid grid-cols-3 gap-2.5">
@@ -134,6 +135,19 @@ function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, cl
                 <div className="text-xs leading-5" style={{ color: theme.node.muted }}>
                     具体可用档位仍以所选视频服务的模型能力为准。
                 </div>
+            </div>
+        </ImageSettingsTheme>
+    );
+}
+
+export function VideoReferenceModeSelector({ config, model, onConfigChange, theme, className = "" }: Pick<VideoSettingsPanelProps, "config" | "model" | "onConfigChange" | "theme" | "className">) {
+    const selectedModel = modelOptionName(model || config.videoModel || config.model);
+    const capability = getUniArtVideoCapability(selectedModel);
+    if (!capability) return null;
+    return (
+        <ImageSettingsTheme theme={theme}>
+            <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
+                <ReferenceModeSettings capability={capability} value={config.videoReferenceMode} theme={theme} onChange={(value) => onConfigChange("videoReferenceMode", value)} />
             </div>
         </ImageSettingsTheme>
     );
