@@ -19,7 +19,7 @@ description: ArtCanvas 对 UniArt 视频模型能力与请求字段的适配边�
 
 ## 直接结论
 
-当前版本不能声称从 pricing API 动态同步视频能力。第一版使用与 UniArt 已部署公共模型 ID 对齐的显式能力表，并把来源边界标记为 `uniart-static-v1`。
+当前版本不能声称从 pricing API 动态同步视频能力。第一版使用与 UniArt 已部署公共模型 ID 对齐的显式能力表；后续静态版本继续按已发布 SKU 契约更新，并明确标记为静态来源。
 
 长期方案是在 UniArt 增加 API Key 可访问的结构化模型能力接口；届时 ArtCanvas 才能移除静态能力表并动态同步。
 
@@ -31,6 +31,11 @@ description: ArtCanvas 对 UniArt 视频模型能力与请求字段的适配边�
   - GlobalAI：`sd_2.0_*`
   - Sudashui：`ua-sd20-07-*`
   - MEAI：`ua-sd20-09-*`
+- 识别 UniArt 已发布的 Seedance 分层 SKU：
+  - `seedance-2.0-official`、`seedance-2.0-vip`、`seedance-2.0-proxy`
+  - `seedance-2.0-fast-official`、`seedance-2.0-fast-vip`、`seedance-2.0-fast-proxy`
+- 分层 SKU 是用户选择的产品与供给池身份；参考素材、时长、比例和分辨率仍由池内候选能力做最终准入。Canvas 的静态表只展示当前已发布契约中至少存在可路由候选的能力，不替代 UniArt 的最终校验。
+- `/v1/models` 当前只给出模型 ID，未携带结构化 SKU 能力，因此切换 SKU 时不能依赖响应动态生成参考方式。待 UniArt 提供 API Key 可访问的能力投影后再替换静态映射。
 - 按精确公共模型 ID 约束可选时长、比例和固定分辨率。
 - 模型切换后，如果原设置不被新模型支持，请求时选择该模型的默认合法值，不发送不可用值。
 - UniArt 模型继续调用 OpenAI 兼容的 `POST /v1/videos`，但使用适配器接受的字段：
@@ -57,6 +62,7 @@ description: ArtCanvas 对 UniArt 视频模型能力与请求字段的适配边�
 6. 前端构建通过；部署镜像与 Git 提交可对应；HTTPS 首页和静态资源返回成功。
 7. 视频创作台和画布节点的设置面板都按各自实际提交模型展示参考方式，不受全局其他视频模型干扰。
 8. 视频创作台无需滚过图片上传区即可看到模型支持的参考方式。
+9. 切换到任一已发布 `seedance-2.0-*-official|vip|proxy` SKU 后，视频创作台与画布视频节点继续显示该 SKU 可用的参考方式、素材入口和参数档位；不支持的视频或音频入口必须按 SKU 能力隐藏。
 
 ## 受影响路径
 

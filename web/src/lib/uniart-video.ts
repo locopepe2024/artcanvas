@@ -1,5 +1,5 @@
 export type UniArtVideoCapability = {
-    family: "globalai" | "sudashui" | "meai";
+    family: "globalai" | "sudashui" | "meai" | "seedance-route";
     durations: number[];
     ratios: string[];
     resolutions?: string[];
@@ -12,7 +12,7 @@ export type UniArtVideoCapability = {
         maxAudios: number;
         supportsFrames: boolean;
     };
-    source: "uniart-static-v2";
+    source: "uniart-static-v3";
 };
 
 export type UniArtVideoReferenceMode = "image_to_video" | "image_reference" | "first_last_frames" | "omni_reference";
@@ -31,8 +31,17 @@ const meaiRatios = ["16:9", "9:16", "1:1", "4:3", "3:4"];
 const references = (maxImages: number, maxVideos = 0, maxAudios = 0, supportsFrames = true) => ({ maxImages, maxVideos, maxAudios, supportsFrames });
 
 function capability(values: Omit<UniArtVideoCapability, "source">): UniArtVideoCapability {
-    return { ...values, source: "uniart-static-v2" };
+    return { ...values, source: "uniart-static-v3" };
 }
+
+const seedanceRouteCapabilities: Record<string, UniArtVideoCapability> = {
+    "seedance-2.0-official": capability({ family: "seedance-route", durations: durationRange(4, 15), ratios: standardRatios, resolutions: ["720p", "1080p", "4k"], defaultDuration: 5, defaultRatio: "16:9", defaultResolution: "720p", references: references(1, 0, 1) }),
+    "seedance-2.0-vip": capability({ family: "seedance-route", durations: durationRange(4, 15), ratios: standardRatios, resolutions: ["720p", "1080p"], defaultDuration: 6, defaultRatio: "16:9", defaultResolution: "720p", references: references(9, 3, 3) }),
+    "seedance-2.0-proxy": capability({ family: "seedance-route", durations: [15], ratios: ["16:9", "9:16", "21:9"], resolutions: ["720p"], defaultDuration: 15, defaultRatio: "16:9", defaultResolution: "720p", references: references(9, 0, 3) }),
+    "seedance-2.0-fast-official": capability({ family: "seedance-route", durations: durationRange(4, 15), ratios: standardRatios, resolutions: ["720p"], defaultDuration: 5, defaultRatio: "16:9", defaultResolution: "720p", references: references(1, 0, 1) }),
+    "seedance-2.0-fast-vip": capability({ family: "seedance-route", durations: durationRange(4, 15), ratios: standardRatios, resolutions: ["720p"], defaultDuration: 6, defaultRatio: "16:9", defaultResolution: "720p", references: references(9, 3, 3) }),
+    "seedance-2.0-fast-proxy": capability({ family: "seedance-route", durations: durationRange(4, 15), ratios: standardRatios, resolutions: ["720p"], defaultDuration: 5, defaultRatio: "16:9", defaultResolution: "720p", references: references(9, 0, 0) }),
+};
 
 const sudashuiCapabilities: Record<string, UniArtVideoCapability> = {
     "ua-sd20-07-01-standard-900-720p": capability({ family: "sudashui", durations: [15], ratios: ["16:9", "9:16"], defaultDuration: 15, defaultRatio: "16:9", references: references(9) }),
@@ -51,6 +60,7 @@ const sudashuiCapabilities: Record<string, UniArtVideoCapability> = {
 
 export function getUniArtVideoCapability(model: string): UniArtVideoCapability | null {
     const name = model.trim();
+    if (seedanceRouteCapabilities[name]) return seedanceRouteCapabilities[name];
     if (sudashuiCapabilities[name]) return sudashuiCapabilities[name];
     const meaiCode = name.match(/^ua-sd20-09-(\d{2})-/i)?.[1];
     if (meaiCode) {
