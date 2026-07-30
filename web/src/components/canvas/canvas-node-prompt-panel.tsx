@@ -12,6 +12,7 @@ import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas
 import { CanvasPromptChipInput } from "./canvas-prompt-chip-input";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
+import { allowsPromptlessFirstLastFrames } from "@/lib/uniart-video";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 
@@ -39,6 +40,15 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const isEditingExistingContent = hasTextContent || hasImageContent;
     const [prompt, setPrompt] = useState(node.metadata?.prompt || "");
+    const promptlessFrames =
+        mode === "video" &&
+        allowsPromptlessFirstLastFrames(
+            config.videoReferenceMode,
+            mentionReferences.filter((reference) => reference.active && reference.kind === "image").length,
+            mentionReferences.filter((reference) => reference.active && reference.kind === "video").length,
+            mentionReferences.filter((reference) => reference.active && reference.kind === "audio").length,
+        );
+    const canSubmit = Boolean(prompt.trim()) || promptlessFrames;
 
     // 仅在切换到其它节点时恢复对应提示词;同一节点生成完成后继续保留当前输入。
     useEffect(() => {
@@ -53,7 +63,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
 
     const submit = () => {
         const text = prompt.trim();
-        if (!text || isRunning) return;
+        if (!canSubmit || isRunning) return;
         onGenerate(node.id, mode, text);
     };
 
@@ -112,7 +122,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                     type="primary"
                     className="!h-10 !min-w-16 shrink-0 !rounded-full !px-3"
                     danger={isRunning}
-                    disabled={!isRunning && !prompt.trim()}
+                    disabled={!isRunning && !canSubmit}
                     onClick={() => (isRunning ? onStop(node.id) : submit())}
                     aria-label={isRunning ? "停止生成" : "生成"}
                 >

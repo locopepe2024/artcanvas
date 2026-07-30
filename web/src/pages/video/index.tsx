@@ -12,7 +12,7 @@ import { VideoReferenceModeSelector, VideoSettingsPanel, normalizeVideoRatioValu
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS, SEEDANCE_VIDEO_MIME_TYPES } from "@/lib/seedance-video";
-import { resolveUniArtReferenceLimits } from "@/lib/uniart-video";
+import { allowsPromptlessFirstLastFrames, resolveUniArtReferenceLimits } from "@/lib/uniart-video";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { createVideoGenerationTask, isRetryableVideoTaskQueryError, storeGeneratedVideo, waitForVideoGenerationTask, type VideoGenerationTask } from "@/services/api/video";
@@ -119,7 +119,8 @@ export default function VideoPage() {
         : { mode: "image_reference" as const, maxImages: seedance ? SEEDANCE_REFERENCE_LIMITS.images : 0, maxVideos: seedance ? SEEDANCE_REFERENCE_LIMITS.videos : 0, maxAudios: seedance ? SEEDANCE_REFERENCE_LIMITS.audios : 0 };
     const imageReferenceTitle = referenceLimits.mode === "first_last_frames" ? "首尾帧" : referenceLimits.mode === "image_to_video" ? "图生视频参考图" : "参考图";
     const imageReferenceHint = referenceLimits.mode === "first_last_frames" ? "请按顺序添加首帧和尾帧，共 2 张" : referenceLimits.mode === "image_to_video" ? "请添加 1 张主体或起始画面" : referenceLimits.maxImages ? "可添加多张，最终由 UniArt 校验" : "该模型未声明参考图片能力";
-    const canGenerate = Boolean(prompt.trim());
+    const promptlessFrames = allowsPromptlessFirstLastFrames(referenceLimits.mode, references.length, videoReferences.length, audioReferences.length);
+    const canGenerate = Boolean(prompt.trim()) || promptlessFrames;
 
     useEffect(() => {
         setReferences((value) => value.slice(0, referenceLimits.maxImages));
@@ -292,7 +293,7 @@ export default function VideoPage() {
 
     const buildRequestSnapshot = () => {
         const text = prompt.trim();
-        if (!text) {
+        if (!text && !promptlessFrames) {
             message.error("请输入视频提示词");
             return null;
         }

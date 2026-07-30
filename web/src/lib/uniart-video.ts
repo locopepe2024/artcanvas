@@ -52,6 +52,10 @@ export function resolveUniArtReferenceLimits(capability: UniArtVideoCapability, 
     };
 }
 
+export function allowsPromptlessFirstLastFrames(mode: string | undefined, imageCount: number, videoCount = 0, audioCount = 0) {
+    return mode === "first_last_frames" && imageCount === 2 && videoCount === 0 && audioCount === 0;
+}
+
 function normalizeRatio(value: string) {
     const normalized = value.trim().toLowerCase();
     if (["21:9", "16:9", "9:16", "1:1", "4:3", "3:4", "auto", "adaptive"].includes(normalized)) return normalized;
