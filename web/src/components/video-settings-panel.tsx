@@ -1,8 +1,9 @@
 import { type ReactNode } from "react";
 import { Switch } from "antd";
+import { GalleryHorizontalEnd, Image, Images, Layers3, type LucideIcon } from "lucide-react";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
-import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
+import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { getUniArtVideoCapability, resolveUniArtReferenceMode, resolveUniArtVideoParams, supportedUniArtReferenceModes, type UniArtVideoCapability, type UniArtVideoReferenceMode } from "@/lib/uniart-video";
 import { modelCapabilityOf, modelOptionName, type AiConfig } from "@/stores/use-config-store";
@@ -22,7 +23,7 @@ const sizeOptions = [
     { value: "3:4", label: "竖向 3:4" },
 ];
 
-const secondOptions = [6, 10, 12, 16, 20];
+const secondOptions = Array.from({ length: 12 }, (_, index) => index + 4);
 
 export const videoResolutionOptions = resolutionOptions.map((item) => ({ value: item.value, label: item.label }));
 export const videoSizeOptions = sizeOptions.map((item) => ({ value: item.value, label: item.label }));
@@ -81,16 +82,7 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
                         ))}
                     </div>
                 </SettingGroup>
-                <SettingGroup title="秒数" color={theme.node.muted}>
-                    <div className="grid grid-cols-3 gap-2.5">
-                        {secondOptions.map((value) => (
-                            <OptionPill key={value} selected={seconds === String(value)} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
-                                {value}s
-                            </OptionPill>
-                        ))}
-                        <NumberInput value={seconds} min={1} max={20} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />
-                    </div>
-                </SettingGroup>
+                <DurationTimeline values={secondOptions} value={Number(seconds)} theme={theme} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
             </div>
         </ImageSettingsTheme>
     );
@@ -104,6 +96,7 @@ function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, cl
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
+                <ReferenceModeSettings capability={capability} value={config.videoReferenceMode} theme={theme} onChange={(value) => onConfigChange("videoReferenceMode", value)} />
                 {capability.resolutions?.length ? (
                     <SettingGroup title="分辨率" color={theme.node.muted}>
                         <div className="grid grid-cols-3 gap-2.5">
@@ -136,19 +129,10 @@ function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, cl
                         })}
                     </div>
                 </SettingGroup>
-                <SettingGroup title="时长" color={theme.node.muted}>
-                    <div className="grid grid-cols-4 gap-2.5">
-                        {capability.durations.map((value) => (
-                            <OptionPill key={value} selected={params.seconds === value} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
-                                {value}s
-                            </OptionPill>
-                        ))}
-                    </div>
-                </SettingGroup>
+                <DurationTimeline values={capability.durations} value={params.seconds} theme={theme} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
                 <div className="text-xs leading-5" style={{ color: theme.node.muted }}>
                     具体可用档位仍以所选视频服务的模型能力为准。
                 </div>
-                <ReferenceModeSettings capability={capability} value={config.videoReferenceMode} theme={theme} onChange={(value) => onConfigChange("videoReferenceMode", value)} />
             </div>
         </ImageSettingsTheme>
     );
@@ -192,16 +176,7 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                         ))}
                     </div>
                 </SettingGroup>
-                <SettingGroup title="时长" color={theme.node.muted}>
-                    <div className="grid grid-cols-4 gap-2.5">
-                        {seedanceDurationOptions.map((value) => (
-                            <OptionPill key={value} selected={duration === value} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
-                                {value === -1 ? "智能" : `${value}s`}
-                            </OptionPill>
-                        ))}
-                    </div>
-                    <NumberInput value={String(duration)} min={-1} max={15} theme={theme} onChange={(value) => onConfigChange("videoSeconds", value)} />
-                </SettingGroup>
+                <DurationTimeline values={secondOptions} value={duration} theme={theme} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
                 <SettingGroup title="输出" color={theme.node.muted}>
                     <div className="grid gap-2 rounded-xl border p-2.5" style={{ borderColor: theme.node.stroke }}>
                         <SwitchRow label="生成声音" checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
@@ -213,11 +188,11 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
     );
 }
 
-const referenceModeLabels: Record<UniArtVideoReferenceMode, { title: string; description: string }> = {
-    image_to_video: { title: "图生视频", description: "单张图片作为主体或起始画面" },
-    image_reference: { title: "图片参考", description: "多张图片提供人物、商品或风格参考" },
-    first_last_frames: { title: "首尾帧", description: "按顺序使用第 1 张和第 2 张图片" },
-    omni_reference: { title: "全能参考", description: "组合图片、视频和音频素材" },
+const referenceModeLabels: Record<UniArtVideoReferenceMode, { title: string; icon: LucideIcon }> = {
+    image_to_video: { title: "图生视频", icon: Image },
+    image_reference: { title: "图片参考", icon: Images },
+    first_last_frames: { title: "首尾帧", icon: GalleryHorizontalEnd },
+    omni_reference: { title: "全能参考", icon: Layers3 },
 };
 
 function ReferenceModeSettings({ capability, value, theme, onChange }: { capability: UniArtVideoCapability; value: string; theme: CanvasTheme; onChange: (value: UniArtVideoReferenceMode) => void }) {
@@ -226,21 +201,23 @@ function ReferenceModeSettings({ capability, value, theme, onChange }: { capabil
     return (
         <SettingGroup title="参考方式" color={theme.node.muted}>
             <div className="grid grid-cols-2 gap-2.5">
-                {modes.map((mode) => (
-                    <button
-                        key={mode}
-                        type="button"
-                        className="min-h-[68px] cursor-pointer rounded-xl border bg-transparent px-3 py-2 text-left transition hover:opacity-80"
-                        style={{ borderColor: selected === mode ? theme.node.text : theme.node.stroke, color: theme.node.text }}
-                        onMouseDown={(event) => event.stopPropagation()}
-                        onClick={() => onChange(mode)}
-                    >
-                        <span className="block text-sm font-medium">{referenceModeLabels[mode].title}</span>
-                        <span className="mt-1 block text-[11px] leading-4" style={{ color: theme.node.muted }}>
-                            {referenceModeLabels[mode].description}
-                        </span>
-                    </button>
-                ))}
+                {modes.map((mode) => {
+                    const Icon = referenceModeLabels[mode].icon;
+                    return (
+                        <button
+                            key={mode}
+                            type="button"
+                            className="flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border bg-transparent px-2 text-sm font-medium transition hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                            style={{ borderColor: selected === mode ? theme.node.text : theme.node.stroke, color: theme.node.text }}
+                            aria-pressed={selected === mode}
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onClick={() => onChange(mode)}
+                        >
+                            <Icon className="size-4 shrink-0" />
+                            <span>{referenceModeLabels[mode].title}</span>
+                        </button>
+                    );
+                })}
             </div>
             <div className="text-[11px] leading-4" style={{ color: theme.node.muted }}>
                 当前模型最多支持 {capability.references.maxImages} 张图片、{capability.references.maxVideos} 个视频、{capability.references.maxAudios} 个音频。
@@ -323,18 +300,40 @@ function SettingGroup({ title, color, children }: { title: string; color: string
     );
 }
 
-function NumberInput({ value, min, max, theme, onChange }: { value: string; min: number; max: number; theme: CanvasTheme; onChange: (value: string) => void }) {
+function DurationTimeline({ values, value, theme, onChange }: { values: number[]; value: number; theme: CanvasTheme; onChange: (value: number) => void }) {
+    const options = [...new Set(values)].sort((left, right) => left - right);
+    const selectedIndex = options.reduce((best, option, index) => (Math.abs(option - value) < Math.abs(options[best] - value) ? index : best), 0);
+    const selected = options[selectedIndex];
+    const disabled = options.length <= 1;
     return (
-        <input
-            type="number"
-            min={min}
-            max={max}
-            className="h-9 rounded-full border bg-transparent px-3 text-center text-sm outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-            style={{ borderColor: theme.node.stroke, color: theme.node.text, WebkitTextFillColor: theme.node.text }}
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-            onMouseDown={(event) => event.stopPropagation()}
-        />
+        <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-3">
+                <span className="text-xs font-medium" style={{ color: theme.node.muted }}>
+                    时长
+                </span>
+                <output className="text-sm font-semibold tabular-nums" style={{ color: theme.node.text }}>
+                    {selected} 秒
+                </output>
+            </div>
+            <input
+                type="range"
+                min={0}
+                max={Math.max(0, options.length - 1)}
+                step={1}
+                value={selectedIndex}
+                disabled={disabled}
+                aria-label="视频时长"
+                aria-valuetext={`${selected} 秒`}
+                className="h-8 w-full cursor-pointer accent-current disabled:cursor-default disabled:opacity-50"
+                style={{ color: theme.node.text }}
+                onChange={(event) => onChange(options[Number(event.target.value)])}
+                onMouseDown={(event) => event.stopPropagation()}
+            />
+            <div className="flex justify-between text-[10px] tabular-nums" style={{ color: theme.node.muted }}>
+                <span>{options[0]}s</span>
+                <span>{options.at(-1)}s</span>
+            </div>
+        </div>
     );
 }
 
