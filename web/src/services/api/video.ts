@@ -6,7 +6,7 @@ import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/fil
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { resolveUniArtReferenceLimits, resolveUniArtVideoParams, type UniArtVideoCapability } from "@/lib/uniart-video";
-import { buildApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, modelCapabilityOf, modelOptionName, resolveModelRequestConfig, resolveModelScript, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -95,8 +95,8 @@ export async function createVideoGenerationTask(config: AiConfig, prompt: string
     if (isSeedanceVideoConfig(requestConfig)) {
         return createSeedanceTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
     }
-    if (!resolveUniArtVideoParams(selectedModel, { seconds: requestConfig.videoSeconds, ratio: requestConfig.size, resolution: requestConfig.vquality }) && (videoReferences.length || audioReferences.length)) {
-        throw new Error("当前视频接口不支持参考视频或参考音频，请切换到 Seedance 2.0 / 火山 Agent Plan 模型，或移除参考资产");
+    if (!videoCapabilityOf(config, selectedModel) && modelCapabilityOf(config, selectedModel) === "video" && references.length + videoReferences.length + audioReferences.length > 0) {
+        throw new Error("当前模型没有声明参考素材能力，请移除参考素材或重新拉取模型能力");
     }
     return createOpenAIVideoTask(requestConfig, selectedModel, prompt, references, videoReferences, audioReferences, options);
 }
@@ -170,8 +170,9 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
 
 async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
     const requestModel = modelOptionName(model);
-    const uniArtParams = resolveUniArtVideoParams(requestModel, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality });
-    if (uniArtParams) {
+    const capability = videoCapabilityOf(config, model);
+    if (capability) {
+        const uniArtParams = resolveUniArtVideoParams(capability, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality });
         try {
             const metadata = await buildUniArtVideoMetadata(config, uniArtParams.capability, uniArtParams.ratio, uniArtParams.resolution, references, videoReferences, audioReferences, options);
             const created = unwrapVideoResponse(
@@ -216,13 +217,13 @@ async function buildUniArtVideoMetadata(
     const mode = limits.mode;
     const hasReferences = references.length + videoReferences.length + audioReferences.length > 0;
     if (!hasReferences) return { ratio, ...(resolution ? { resolution } : {}) };
-    if (references.length > limits.maxImages) throw new Error(`当前参考方式最多支持 ${limits.maxImages} 张参考图片`);
+    if (references.length > limits.maxImages) throw new Error("参考图片超过画布单次上传安全上限");
     if (videoReferences.length > limits.maxVideos) throw new Error("参考视频只能用于当前模型支持的全能参考模式");
     if (audioReferences.length > limits.maxAudios) throw new Error("参考音频只能用于当前模型支持的全能参考模式");
     if (mode === "image_to_video" && references.length !== 1) throw new Error("图生视频模式需要且只能使用 1 张图片");
     if (mode === "image_reference" && !references.length) throw new Error("图片参考模式至少需要 1 张图片");
     if (mode === "first_last_frames" && (references.length !== 2 || videoReferences.length || audioReferences.length)) throw new Error("首尾帧模式需要且只能使用 2 张图片，第 1 张为首帧，第 2 张为尾帧");
-    if (capability.family === "meai" && videoReferences.some((item) => !item.durationMs || item.durationMs <= 0)) throw new Error("MEAI 参考视频缺少可读取的时长，请重新上传视频文件");
+    if (videoReferences.some((item) => !item.durationMs || item.durationMs <= 0)) throw new Error("参考视频缺少可读取的时长，请重新上传视频文件");
 
     const [imageURLs, videoURLs, audioURLs] = await Promise.all([
         Promise.all(references.map(async (image) => uploadCanvasVideoAsset(await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) }), options))),
@@ -230,17 +231,6 @@ async function buildUniArtVideoMetadata(
         Promise.all(audioReferences.map(async (audio) => uploadCanvasVideoAsset(await referenceMediaFile(audio), options))),
     ]);
 
-    if (capability.family === "globalai") {
-        const content: Array<Record<string, unknown>> = [];
-        if (mode === "first_last_frames") {
-            content.push({ type: "image_url", role: "first_frame", image_url: { url: imageURLs[0] } }, { type: "image_url", role: "last_frame", image_url: { url: imageURLs[1] } });
-        } else {
-            imageURLs.forEach((url) => content.push({ type: "image_url", role: "reference_image", image_url: { url } }));
-            videoURLs.forEach((url) => content.push({ type: "video_url", role: "reference_video", video_url: { url } }));
-            audioURLs.forEach((url) => content.push({ type: "audio_url", role: "reference_audio", audio_url: { url } }));
-        }
-        return { ratio, ...(resolution ? { resolution } : {}), content };
-    }
     if (mode === "first_last_frames") return { ratio, ...(resolution ? { resolution } : {}), mode: "frames", first_frame_url: imageURLs[0], last_frame_url: imageURLs[1] };
     return {
         ratio,

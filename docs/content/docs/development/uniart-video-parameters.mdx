@@ -7,62 +7,51 @@ description: ArtCanvas 对 UniArt 视频模型能力与请求字段的适配边�
 
 ## 目标
 
-让 ArtCanvas 在选择 UniArt 视频模型时，只展示该模型实际接受的时长、比例和分辨率，并把这些设置发送到 UniArt `/v1/videos` 的正确字段中。
+让 ArtCanvas 使用 UniArt `/v1/models` 投影的定性视频能力展示参考方式，并把用户选择的通用视频参数发送到 `/v1/videos`；候选模型的数值参数集由 UniArt 负责适配和校验。
 
 ## 已观察事实
 
 - ArtCanvas 通过用户配置的 Base URL 和 API Key 调用 `/v1/models` 与 `/v1/videos`。
-- UniArt `/v1/models` 只返回 OpenAI 模型列表，不包含时长、比例、分辨率或参考素材上限。
+- UniArt `/v1/models` 的基础字段是模型 ID、owner 和端点类型；支持参考素材的模型可额外投影 `video_capability.modes`。
 - UniArt `/api/pricing` 需要站点登录会话，返回价格和端点类型，但当前也不返回结构化的视频能力对象。
 - UniArt 定价页显示的“支持参数”由定价前端根据模型名称推断，不是 `/api/pricing` 响应中的参数契约。
-- 通用 Infinite Canvas 视频请求固定发送 `seconds`、`size`、`resolution_name` 和 `preset`，无法表达 UniArt 适配器要求的 `metadata.ratio` 与 `metadata.resolution`。
+- `09-04`、`900`、`903`、`933` 等名称片段描述候选参数集，不能作为 Canvas 的能力权威。
 
 ## 直接结论
 
-当前版本不能声称从 pricing API 动态同步视频能力。第一版使用与 UniArt 已部署公共模型 ID 对齐的显式能力表；后续静态版本继续按已发布 SKU 契约更新，并明确标记为静态来源。
+Canvas 只消费 `/v1/models` 中的定性能力集：文生视频、图生视频、图片参考、首尾帧和全能参考。`input_types` 决定图片、视频和音频入口是否显示。
 
-长期方案是在 UniArt 增加 API Key 可访问的结构化模型能力接口；届时 ArtCanvas 才能移除静态能力表并动态同步。
+素材数量、时长范围、分辨率、比例和供应商协议属于 UniArt 参数集。Canvas 不解析模型名、不复制这些数值限制；UniArt 在提交时选择候选并返回最终准入结果。
 
 视频设置面板必须使用当前工作台或画布节点实际选择的视频模型作为能力判断输入。不能仅从全局 `config.model` 推断，因为它可能保存另一个同样被标记为视频能力的模型，导致设置面板与实际提交模型不一致。
 
 ## v1 范围
 
-- 识别三类 UniArt 公共视频模型：
-  - GlobalAI：`sd_2.0_*`
-  - Sudashui：`ua-sd20-07-*`
-  - MEAI：`ua-sd20-09-*`
-- 识别 UniArt 已发布的 Seedance 分层 SKU：
-  - `seedance-2.0-official`、`seedance-2.0-vip`、`seedance-2.0-proxy`
-  - `seedance-2.0-fast-official`、`seedance-2.0-fast-vip`、`seedance-2.0-fast-proxy`
-- 分层 SKU 是用户选择的产品与供给池身份；参考素材、时长、比例和分辨率仍由池内候选能力做最终准入。Canvas 的静态表只展示当前已发布契约中至少存在可路由候选的能力，不替代 UniArt 的最终校验。
-- `/v1/models` 当前只给出模型 ID，未携带结构化 SKU 能力，因此切换 SKU 时不能依赖响应动态生成参考方式。待 UniArt 提供 API Key 可访问的能力投影后再替换静态映射。
-- 按精确公共模型 ID 约束可选时长、比例和固定分辨率。
-- 模型切换后，如果原设置不被新模型支持，请求时选择该模型的默认合法值，不发送不可用值。
-- UniArt 模型继续调用 OpenAI 兼容的 `POST /v1/videos`，但使用适配器接受的字段：
+- 拉取模型时保存 `video_capability.modes[].id` 和 `input_types`。
+- 不从 GlobalAI、Sudashui、MEAI 或公开 Seedance SKU 的名称推导能力。
+- 没有 `video_capability` 时只保留基础文生视频，不显示参考素材入口。
+- UniArt 模型继续调用 OpenAI 兼容的 `POST /v1/videos`，使用 provider-neutral 字段：
   - 顶层：`model`、`prompt`、`seconds`
-  - metadata 表单字段：`ratio`，以及 MEAI/GlobalAI 需要的 `resolution`
+  - metadata：`ratio`、`resolution`、参考方式与素材 URL
 - 不再为 UniArt 模型发送无效的 `resolution_name` 和 `preset`。
 - 非 UniArt 模型保持原有通用请求和设置行为。
 - 视频创作台把参考方式入口直接放在提示词之后、素材上传区之前；选择全能参考后，参考视频和参考音频上传区才随能力出现。画布视频节点仍把入口放在视频设置浮层顶部。
 
 ## v1 非范围
 
-- 不新增或修改 UniArt 后端 API。
 - 不宣称支持 pricing API 动态同步。
 - 不改变 API Key、本地画布或素材仍保存在浏览器本地的边界。
-- 不扩大参考视频、参考音频和首尾帧能力；这些路径需要单独验证上传 URL、数量限制和总时长约束。
+- Canvas 的 30MB 图片、200MB 视频和 15MB 音频限制是浏览器上传安全边界，不是模型参数集。
 
 ## 成功标准
 
-1. MEAI 模型显示 4–15 秒、已验证比例和 720P/1080P。
-2. Sudashui 模型按精确公共 ID 显示已验证时长和比例。
-3. GlobalAI 模型显示 4–15 秒、已验证比例和模型固定分辨率。
+1. Canvas 保存并使用当前实际视频模型返回的 `video_capability`。
+2. 参考方式和素材入口只由 `modes`、`input_types` 决定。
+3. 模型名含 `09-04`、`900`、`903`、`933` 但没有 `video_capability` 时，不显示参考入口。
 4. UniArt 请求不包含 `resolution_name` 或 `preset`，比例写入 `ratio`，时长写入顶层 `seconds`。
-5. 非 UniArt 模型的通用视频请求保持不变。
-6. 前端构建通过；部署镜像与 Git 提交可对应；HTTPS 首页和静态资源返回成功。
-7. 视频创作台和画布节点的设置面板都按各自实际提交模型展示参考方式，不受全局其他视频模型干扰。
-8. 视频创作台无需滚过图片上传区即可看到模型支持的参考方式。
-9. 切换到任一已发布 `seedance-2.0-*-official|vip|proxy` SKU 后，视频创作台与画布视频节点继续显示该 SKU 可用的参考方式、素材入口和参数档位；不支持的视频或音频入口必须按 SKU 能力隐藏。
+5. 数值组合不在 Canvas 预判，UniArt 的准入错误直接反馈给用户。
+6. 非 UniArt 模型的通用视频请求保持不变。
+7. 前端构建通过；部署镜像与 Git 提交可对应；HTTPS 首页和静态资源返回成功。
 
 ## 受影响路径
 

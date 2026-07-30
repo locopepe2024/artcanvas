@@ -12,13 +12,13 @@ import { VideoReferenceModeSelector, VideoSettingsPanel, normalizeVideoRatioValu
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS, SEEDANCE_VIDEO_MIME_TYPES } from "@/lib/seedance-video";
-import { getUniArtVideoCapability, resolveUniArtReferenceLimits } from "@/lib/uniart-video";
+import { resolveUniArtReferenceLimits } from "@/lib/uniart-video";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { createVideoGenerationTask, isRetryableVideoTaskQueryError, storeGeneratedVideo, waitForVideoGenerationTask, type VideoGenerationTask } from "@/services/api/video";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
-import { modelOptionLabel, modelOptionName, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { modelOptionLabel, modelOptionName, useConfigStore, useEffectiveConfig, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -112,13 +112,13 @@ export default function VideoPage() {
     const agentTaskIdRef = useRef<string | undefined>(undefined);
 
     const model = effectiveConfig.videoModel || effectiveConfig.model;
-    const uniArtCapability = getUniArtVideoCapability(modelOptionName(model));
+    const uniArtCapability = videoCapabilityOf(effectiveConfig, model);
     const seedance = isSeedanceVideoConfig({ ...effectiveConfig, model });
     const referenceLimits = uniArtCapability
         ? resolveUniArtReferenceLimits(uniArtCapability, effectiveConfig.videoReferenceMode)
-        : { mode: "image_reference" as const, maxImages: seedance ? SEEDANCE_REFERENCE_LIMITS.images : 7, maxVideos: seedance ? SEEDANCE_REFERENCE_LIMITS.videos : 0, maxAudios: seedance ? SEEDANCE_REFERENCE_LIMITS.audios : 0 };
+        : { mode: "image_reference" as const, maxImages: seedance ? SEEDANCE_REFERENCE_LIMITS.images : 0, maxVideos: seedance ? SEEDANCE_REFERENCE_LIMITS.videos : 0, maxAudios: seedance ? SEEDANCE_REFERENCE_LIMITS.audios : 0 };
     const imageReferenceTitle = referenceLimits.mode === "first_last_frames" ? "首尾帧" : referenceLimits.mode === "image_to_video" ? "图生视频参考图" : "参考图";
-    const imageReferenceHint = referenceLimits.mode === "first_last_frames" ? "请按顺序添加首帧和尾帧，共 2 张" : referenceLimits.mode === "image_to_video" ? "请添加 1 张主体或起始画面" : `最多 ${referenceLimits.maxImages} 张`;
+    const imageReferenceHint = referenceLimits.mode === "first_last_frames" ? "请按顺序添加首帧和尾帧，共 2 张" : referenceLimits.mode === "image_to_video" ? "请添加 1 张主体或起始画面" : referenceLimits.maxImages ? "可添加多张，最终由 UniArt 校验" : "该模型未声明参考图片能力";
     const canGenerate = Boolean(prompt.trim());
 
     useEffect(() => {
@@ -335,7 +335,7 @@ export default function VideoPage() {
             setPrompt(payload.content);
         } else if (payload.kind === "image") {
             if (references.length >= referenceLimits.maxImages) {
-                message.warning(`当前参考方式最多支持 ${referenceLimits.maxImages} 张图片`);
+                message.warning("已达到画布单次上传安全上限，具体参数由 UniArt 校验");
                 return;
             }
             const stored = await uploadImage(payload.dataUrl);
@@ -503,7 +503,7 @@ export default function VideoPage() {
 
                             <VideoReferenceModeSelector config={effectiveConfig} model={model} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} />
 
-                            <div className="min-w-0">
+                            {referenceLimits.maxImages > 0 ? <div className="min-w-0">
                                 <div className="mb-2 flex items-center justify-between gap-3">
                                     <span className="text-base font-semibold">{imageReferenceTitle}</span>
                                     <div className="flex gap-2">
@@ -526,9 +526,9 @@ export default function VideoPage() {
                                     onDrop={handleReferenceDrop}
                                 >
                                     {references.map((item, index) => (
-                                        <div key={item.id} className="group relative size-20 shrink-0 overflow-hidden rounded-md border border-stone-200 dark:border-stone-800">
-                                            <img src={item.dataUrl} alt={item.name} className="size-full object-cover" />
-                                            <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
+                                        <div key={item.id} className="group relative size-20 shrink-0 overflow-hidden rounded-md border border-stone-200 dark:border-stone-800" title={`${referenceLimits.mode === "first_last_frames" ? (index === 0 ? "首帧" : "尾帧") : "参考图"} ${seedanceReferenceLabel("image", index)}`}>
+                                            <img src={item.dataUrl} alt={`${item.name}，${seedanceReferenceLabel("image", index)}`} className="size-full object-cover" />
+                                            <span className="pointer-events-none absolute left-1 top-1 rounded bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-white shadow-sm ring-1 ring-white/30">
                                                 {referenceLimits.mode === "first_last_frames" ? `${index === 0 ? "首帧" : "尾帧"} · ${seedanceReferenceLabel("image", index)}` : seedanceReferenceLabel("image", index)}
                                             </span>
                                             <ReferenceOrderButtons index={index} total={references.length} onMove={(offset) => setReferences((value) => moveListItem(value, index, offset))} />
@@ -544,7 +544,7 @@ export default function VideoPage() {
                                     ))}
                                     {!references.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">{referenceDragTarget === "image" ? "松开即可上传参考图" : imageReferenceHint}</div> : null}
                                 </div>
-                            </div>
+                            </div> : null}
 
                             {referenceLimits.maxVideos > 0 ? (
                                 <div className="min-w-0">
@@ -565,9 +565,9 @@ export default function VideoPage() {
                                         onDrop={handleReferenceDrop}
                                     >
                                         {videoReferences.map((item, index) => (
-                                            <div key={item.id} className="group relative h-20 w-32 shrink-0 overflow-hidden rounded-md border border-stone-200 bg-black dark:border-stone-800">
+                                            <div key={item.id} className="group relative h-20 w-32 shrink-0 overflow-hidden rounded-md border border-stone-200 bg-black dark:border-stone-800" title={`参考视频 ${seedanceReferenceLabel("video", index, { images: references.length, videos: videoReferences.length })}`}>
                                                 <video src={item.url} className="size-full object-cover" muted preload="metadata" />
-                                                <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">{seedanceReferenceLabel("video", index, { images: references.length, videos: videoReferences.length })}</span>
+                                                <span className="pointer-events-none absolute left-1 top-1 rounded bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-white shadow-sm ring-1 ring-white/30">{seedanceReferenceLabel("video", index, { images: references.length, videos: videoReferences.length })}</span>
                                                 <ReferenceOrderButtons index={index} total={videoReferences.length} onMove={(offset) => setVideoReferences((value) => moveListItem(value, index, offset))} />
                                                 <button
                                                     type="button"
@@ -581,7 +581,7 @@ export default function VideoPage() {
                                         ))}
                                         {!videoReferences.length ? (
                                             <div className="flex min-w-full items-center justify-center text-sm text-stone-500">
-                                                {referenceDragTarget === "video" ? "松开即可上传参考视频" : `暂无参考视频，可拖入文件，最多 ${referenceLimits.maxVideos} 个`}
+                                                {referenceDragTarget === "video" ? "松开即可上传参考视频" : "暂无参考视频，可拖入多个文件，最终由 UniArt 校验"}
                                             </div>
                                         ) : null}
                                     </div>
@@ -607,10 +607,10 @@ export default function VideoPage() {
                                         onDrop={handleReferenceDrop}
                                     >
                                         {audioReferences.map((item, index) => (
-                                            <div key={item.id} className="group relative flex h-20 w-48 shrink-0 flex-col justify-center gap-2 rounded-md border border-stone-200 bg-stone-50 px-2 dark:border-stone-800 dark:bg-stone-900">
+                                            <div key={item.id} className="group relative flex h-20 w-48 shrink-0 flex-col justify-center gap-2 rounded-md border border-stone-200 bg-stone-50 px-2 dark:border-stone-800 dark:bg-stone-900" title={`参考音频 ${seedanceReferenceLabel("audio", index, { images: references.length, videos: videoReferences.length })}`}>
                                                 <div className="flex min-w-0 items-center gap-2 text-xs text-stone-500 dark:text-stone-400">
                                                     <Music2 className="size-4 shrink-0" />
-                                                    <span className="shrink-0 rounded bg-stone-200 px-1 text-[10px] text-stone-700 dark:bg-stone-800 dark:text-stone-200">{seedanceReferenceLabel("audio", index, { images: references.length, videos: videoReferences.length })}</span>
+                                                    <span className="shrink-0 rounded bg-black/75 px-1.5 py-0.5 text-[11px] font-semibold text-white shadow-sm ring-1 ring-white/30">{seedanceReferenceLabel("audio", index, { images: references.length, videos: videoReferences.length })}</span>
                                                     <span className="truncate">{item.name}</span>
                                                 </div>
                                                 <audio src={item.url} controls className="h-8 w-full" preload="metadata" />
@@ -627,7 +627,7 @@ export default function VideoPage() {
                                         ))}
                                         {!audioReferences.length ? (
                                             <div className="flex min-w-full items-center justify-center text-center text-sm text-stone-500">
-                                                {referenceDragTarget === "audio" ? "松开即可上传参考音频" : `暂无参考音频，可拖入文件，最多 ${referenceLimits.maxAudios} 个，单个 15MB 内`}
+                                                {referenceDragTarget === "audio" ? "松开即可上传参考音频" : "暂无参考音频，可拖入多个文件；单个 15MB 内，最终由 UniArt 校验"}
                                             </div>
                                         ) : null}
                                     </div>

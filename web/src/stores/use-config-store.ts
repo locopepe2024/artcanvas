@@ -7,10 +7,15 @@ export type ApiCallFormat = "openai" | "gemini" | "ark";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
 export type VideoReferenceMode = "image_to_video" | "image_reference" | "first_last_frames" | "omni_reference";
+export type VideoCapabilityModeId = "text_to_video" | "image_to_video" | "image_reference" | "first_last_frame" | "omni_reference";
+export type VideoCapability = {
+    modes: Array<{ id: VideoCapabilityModeId; inputTypes: Array<"text" | "image" | "video" | "audio"> }>;
+};
 
 export type ChannelModel = {
     name: string;
     capability: ModelCapability;
+    videoCapability?: VideoCapability;
     script?: string;
 };
 
@@ -159,6 +164,10 @@ export function modelCapabilityOf(config: AiConfig, value: string): ModelCapabil
     return findChannelModel(config, value)?.model.capability;
 }
 
+export function videoCapabilityOf(config: AiConfig, value: string): VideoCapability | undefined {
+    return findChannelModel(config, value)?.model.videoCapability;
+}
+
 export function modelMatchesCapability(config: AiConfig, value: string, capability?: ModelCapability) {
     if (!capability) return true;
     return modelCapabilityOf(config, value) === capability;
@@ -271,9 +280,19 @@ export function normalizeChannelModels(models: Array<string | ChannelModel> | un
         seen.add(name);
         const capability = typeof item === "string" ? guessCapability(name) : item.capability || guessCapability(name);
         const script = typeof item === "string" ? undefined : item.script?.trim() || undefined;
-        result.push({ name, capability, script });
+        const videoCapability = typeof item === "string" ? undefined : normalizeVideoCapability(item.videoCapability);
+        result.push({ name, capability, videoCapability, script });
     }
     return result;
+}
+
+export function normalizeVideoCapability(value: VideoCapability | undefined): VideoCapability | undefined {
+    const allowedModes = new Set<VideoCapabilityModeId>(["text_to_video", "image_to_video", "image_reference", "first_last_frame", "omni_reference"]);
+    const allowedInputs = new Set<"text" | "image" | "video" | "audio">(["text", "image", "video", "audio"]);
+    const modes = (Array.isArray(value?.modes) ? value.modes : [])
+        .filter((mode) => allowedModes.has(mode.id))
+        .map((mode) => ({ id: mode.id, inputTypes: Array.from(new Set((Array.isArray(mode.inputTypes) ? mode.inputTypes : []).filter((input) => allowedInputs.has(input)))) }));
+    return modes.length ? { modes } : undefined;
 }
 
 export function createModelChannel(channel?: Partial<ModelChannel>): ModelChannel {

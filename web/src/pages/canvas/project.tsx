@@ -645,9 +645,9 @@ function InfiniteCanvasPage() {
     }, [connections, nodes]);
     const mentionReferencesByNodeId = useMemo(() => {
         const map = new Map<string, ReturnType<typeof buildNodeMentionReferences>>();
-        nodes.forEach((node) => map.set(node.id, buildNodeMentionReferences(node, nodes, connections)));
+        nodes.forEach((node) => map.set(node.id, buildNodeMentionReferences(node, nodes, connections, effectiveConfig.videoReferenceMode)));
         return map;
-    }, [connections, nodes]);
+    }, [connections, effectiveConfig.videoReferenceMode, nodes]);
     const { applyAgentOps } = useAgentBridge({
         projectId,
         title: currentProject?.title,
@@ -2721,6 +2721,7 @@ function InfiniteCanvasPage() {
                     value={panelNode.metadata?.composerContent ?? panelNode.metadata?.prompt ?? ""}
                     inputs={configInputsById.get(panelNode.id) || []}
                     videoMode={panelNode.metadata?.generationMode === "video"}
+                    videoReferenceMode={panelNode.metadata?.videoReferenceMode || effectiveConfig.videoReferenceMode}
                     onChange={(composerContent) => handleConfigNodeChange(panelNode.id, { composerContent })}
                     onClose={() => setDialogNodeId(null)}
                 />
@@ -2740,7 +2741,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [configInputsById, confirmStopGeneration, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, renderPluginPanel, runningNodeId],
+        [configInputsById, confirmStopGeneration, effectiveConfig.videoReferenceMode, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, renderPluginPanel, runningNodeId],
     );
 
     const renderNodeContentPanel = useCallback(

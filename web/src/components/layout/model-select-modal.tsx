@@ -3,13 +3,13 @@ import { RefreshCw, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 import { fetchChannelModels } from "@/services/api/image";
-import type { ModelChannel } from "@/stores/use-config-store";
+import { guessCapability, type ChannelModel, type ModelChannel } from "@/stores/use-config-store";
 
 // 选择渠道模型弹窗：拉取上游模型列表或手动增加，勾选后才会进入渠道模型列表。
-export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onClose }: { open: boolean; channel: ModelChannel | null; selectedNames: string[]; onConfirm: (names: string[]) => void; onClose: () => void }) {
+export function ModelSelectModal({ open, channel, selectedModels, onConfirm, onClose }: { open: boolean; channel: ModelChannel | null; selectedModels: ChannelModel[]; onConfirm: (models: ChannelModel[]) => void; onClose: () => void }) {
     const { message } = App.useApp();
-    const [existing, setExisting] = useState<string[]>([]);
-    const [fetched, setFetched] = useState<string[]>([]);
+    const [existing, setExisting] = useState<ChannelModel[]>([]);
+    const [fetched, setFetched] = useState<ChannelModel[]>([]);
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [activeTab, setActiveTab] = useState("new");
     const [search, setSearch] = useState("");
@@ -18,15 +18,16 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
 
     useEffect(() => {
         if (!open) return;
-        setExisting(selectedNames);
+        setExisting(selectedModels);
         setFetched([]);
-        setSelected(new Set(selectedNames));
-        setActiveTab(selectedNames.length ? "existing" : "new");
+        setSelected(new Set(selectedModels.map((model) => model.name)));
+        setActiveTab(selectedModels.length ? "existing" : "new");
         setSearch("");
         setManual("");
-    }, [open, selectedNames]);
+    }, [open, selectedModels]);
 
-    const currentList = activeTab === "new" ? fetched : existing;
+    const currentModels = activeTab === "new" ? fetched : existing;
+    const currentList = currentModels.map((model) => model.name);
     const visibleList = useMemo(() => {
         const keyword = search.trim().toLowerCase();
         return keyword ? currentList.filter((name) => name.toLowerCase().includes(keyword)) : currentList;
@@ -51,7 +52,7 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
     const addManual = () => {
         const name = manual.trim();
         if (!name) return;
-        if (!fetched.includes(name) && !existing.includes(name)) setFetched((current) => [name, ...current]);
+        if (!fetched.some((model) => model.name === name) && !existing.some((model) => model.name === name)) setFetched((current) => [{ name, capability: guessCapability(name) }, ...current]);
         setSelected((current) => new Set(current).add(name));
         setManual("");
         setActiveTab("new");
@@ -77,7 +78,7 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
     };
 
     const confirm = () => {
-        const ordered = [...existing, ...fetched].filter((name, index, list) => list.indexOf(name) === index).filter((name) => selected.has(name));
+        const ordered = Array.from(new Map([...existing, ...fetched].map((model) => [model.name, model])).values()).filter((model) => selected.has(model.name));
         onConfirm(ordered);
         onClose();
     };
@@ -90,7 +91,7 @@ export function ModelSelectModal({ open, channel, selectedNames, onConfirm, onCl
             onCancel={onClose}
             title={
                 <span>
-                    选择渠道模型 <span className="ml-2 text-xs font-normal text-stone-500">已选择 {selected.size} / {new Set([...existing, ...fetched]).size}</span>
+                    选择渠道模型 <span className="ml-2 text-xs font-normal text-stone-500">已选择 {selected.size} / {new Set([...existing, ...fetched].map((model) => model.name)).size}</span>
                 </span>
             }
             styles={{ body: { maxHeight: "62vh", overflowY: "auto" } }}

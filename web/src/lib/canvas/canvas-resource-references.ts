@@ -1,7 +1,7 @@
 import { imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { seedanceReferenceLabel } from "@/lib/seedance-video";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
-import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
+import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 
 export type CanvasResourceKind = "image" | "video" | "audio" | "text";
 
@@ -10,15 +10,16 @@ export type CanvasResourceReference = {
     nodeId: string;
     kind: CanvasResourceKind;
     label: string;
+    displayLabel: string;
     title: string;
     previewUrl?: string;
     text?: string;
     active: boolean;
 };
 
-export function buildNodeMentionReferences(node: CanvasNodeData, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+export function buildNodeMentionReferences(node: CanvasNodeData, nodes: CanvasNodeData[], connections: CanvasConnection[], fallbackVideoReferenceMode?: CanvasNodeMetadata["videoReferenceMode"]) {
     const videoMode = node.type === CanvasNodeType.Video || node.metadata?.generationMode === "video";
-    return labelResourceNodes(getMentionResourceNodes(node.id, nodes, connections), true, videoMode);
+    return labelResourceNodes(getMentionResourceNodes(node.id, nodes, connections), true, videoMode, node.metadata?.videoReferenceMode || fallbackVideoReferenceMode);
 }
 
 export function getMentionResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
@@ -51,7 +52,7 @@ function getConnectedConfigResourceNodes(nodeId: string, nodes: CanvasNodeData[]
     return getContextResourceNodes(configConnection.toNodeId, nodes, connections).filter((node) => node.id !== nodeId);
 }
 
-function labelResourceNodes(nodes: CanvasNodeData[], active: boolean, videoMode: boolean) {
+function labelResourceNodes(nodes: CanvasNodeData[], active: boolean, videoMode: boolean, videoReferenceMode?: CanvasNodeMetadata["videoReferenceMode"]) {
     const counts: Record<CanvasResourceKind, number> = { image: 0, video: 0, audio: 0, text: 0 };
     const totals = nodes.reduce(
         (result, node) => {
@@ -66,12 +67,14 @@ function labelResourceNodes(nodes: CanvasNodeData[], active: boolean, videoMode:
         if (!kind) return [];
         const index = counts[kind]++;
         const label = labelForKind(kind, index, totals, videoMode);
+        const displayLabel = videoMode && videoReferenceMode === "first_last_frames" && kind === "image" && index < 2 ? `${index === 0 ? "首帧" : "尾帧"} · ${label}` : label;
         return [
             {
                 id: node.id,
                 nodeId: node.id,
                 kind,
                 label,
+                displayLabel,
                 title: node.title || label,
                 previewUrl: node.metadata?.content,
                 text: resourceText(node),

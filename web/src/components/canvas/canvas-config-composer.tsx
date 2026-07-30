@@ -7,11 +7,13 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { seedanceReferenceLabel } from "@/lib/seedance-video";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { NodeGenerationInput } from "./canvas-node-generation";
+import type { CanvasNodeMetadata } from "@/types/canvas";
 
 type CanvasConfigComposerProps = {
     value: string;
     inputs: NodeGenerationInput[];
     videoMode: boolean;
+    videoReferenceMode?: CanvasNodeMetadata["videoReferenceMode"];
     onChange: (value: string) => void;
     onClose: () => void;
 };
@@ -26,7 +28,7 @@ type MentionState = {
 
 export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]/g;
 
-export function CanvasConfigComposer({ value, inputs, videoMode, onChange, onClose }: CanvasConfigComposerProps) {
+export function CanvasConfigComposer({ value, inputs, videoMode, videoReferenceMode, onChange, onClose }: CanvasConfigComposerProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
@@ -52,9 +54,12 @@ export function CanvasConfigComposer({ value, inputs, videoMode, onChange, onClo
     }, [inputs, mention, selectedInputs, videoMode]);
 
     useEffect(() => {
-        if (document.activeElement === editorRef.current) return;
         const editor = editorRef.current;
         if (!editor) return;
+        if (document.activeElement === editor) {
+            refreshReferenceChipLabels(editor, videoMode ? selectedInputs : inputs, videoMode, videoReferenceMode);
+            return;
+        }
         editor.textContent = "";
         tokens.forEach((token) => {
             if (token.type === "text") {
@@ -62,9 +67,9 @@ export function CanvasConfigComposer({ value, inputs, videoMode, onChange, onClo
                 return;
             }
             const input = referenceById.get(token.nodeId);
-            if (input) editor.append(createReferenceChip(input, videoMode ? selectedInputs : inputs, videoMode, theme, setImagePreview));
+            if (input) editor.append(createReferenceChip(input, videoMode ? selectedInputs : inputs, videoMode, videoReferenceMode, theme, setImagePreview));
         });
-    }, [inputs, referenceById, selectedInputs, theme, tokens, videoMode]);
+    }, [inputs, referenceById, selectedInputs, theme, tokens, videoMode, videoReferenceMode]);
 
     const syncFromEditor = () => {
         const editor = editorRef.current;
@@ -94,7 +99,7 @@ export function CanvasConfigComposer({ value, inputs, videoMode, onChange, onClo
         const editor = editorRef.current;
         if (!editor) return;
         removeActiveMention();
-        const chip = createReferenceChip(input, videoMode ? withCandidate(selectedInputs, input) : inputs, videoMode, theme, setImagePreview);
+        const chip = createReferenceChip(input, videoMode ? withCandidate(selectedInputs, input) : inputs, videoMode, videoReferenceMode, theme, setImagePreview);
         const space = document.createTextNode(" ");
         const selection = window.getSelection();
         const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
@@ -182,7 +187,7 @@ export function CanvasConfigComposer({ value, inputs, videoMode, onChange, onClo
                     }}
                     onBlur={() => window.setTimeout(closeMention, 120)}
                 />
-                {mention && candidates.length ? <MentionMenu inputs={candidates} allInputs={inputs} selectedInputs={selectedInputs} videoMode={videoMode} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} onSelect={insertReference} /> : null}
+                {mention && candidates.length ? <MentionMenu inputs={candidates} allInputs={inputs} selectedInputs={selectedInputs} videoMode={videoMode} videoReferenceMode={videoReferenceMode} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} onSelect={insertReference} /> : null}
             </div>
             {imagePreview ? <Image src={imagePreview} alt="引用图片预览" style={{ display: "none" }} preview={{ visible: true, src: imagePreview, onVisibleChange: (visible) => !visible && setImagePreview(null) }} /> : null}
         </div>
@@ -190,7 +195,7 @@ export function CanvasConfigComposer({ value, inputs, videoMode, onChange, onClo
 
 }
 
-function MentionMenu({ inputs, allInputs, selectedInputs, videoMode, activeIndex, theme, onSelect }: { inputs: NodeGenerationInput[]; allInputs: NodeGenerationInput[]; selectedInputs: NodeGenerationInput[]; videoMode: boolean; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onSelect: (input: NodeGenerationInput) => void }) {
+function MentionMenu({ inputs, allInputs, selectedInputs, videoMode, videoReferenceMode, activeIndex, theme, onSelect }: { inputs: NodeGenerationInput[]; allInputs: NodeGenerationInput[]; selectedInputs: NodeGenerationInput[]; videoMode: boolean; videoReferenceMode?: CanvasNodeMetadata["videoReferenceMode"]; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onSelect: (input: NodeGenerationInput) => void }) {
     const selectedRef = useRef(false);
     const activeItemRef = useRef<HTMLButtonElement | null>(null);
 
@@ -219,9 +224,9 @@ function MentionMenu({ inputs, allInputs, selectedInputs, videoMode, activeIndex
                         selectInput(input);
                     }}
                 >
-                    <ResourcePreview input={input} />
+                    <ResourcePreview input={input} label={videoMode && input.type !== "text" ? resourceLabel(input, withCandidate(selectedInputs, input), true) : undefined} />
                     <span className="min-w-0 flex-1">
-                        <span className="block font-medium">{resourceLabel(input, videoMode ? withCandidate(selectedInputs, input) : allInputs, videoMode)}</span>
+                        <span className="block font-medium">{resourceDisplayLabel(input, videoMode ? withCandidate(selectedInputs, input) : allInputs, videoMode, videoReferenceMode)}</span>
                         <span className="block truncate opacity-65">{input.text || input.title}</span>
                     </span>
                 </button>
@@ -230,43 +235,80 @@ function MentionMenu({ inputs, allInputs, selectedInputs, videoMode, activeIndex
     );
 }
 
-function ResourcePreview({ input }: { input: NodeGenerationInput }) {
-    if (input.type === "image" && input.image) return <img src={input.image.dataUrl} alt="" className="size-9 rounded-md object-cover" />;
-    if (input.type === "video" && input.video) return <video src={input.video.url} className="size-9 rounded-md bg-black object-cover" muted preload="metadata" />;
+function ResourcePreview({ input, label }: { input: NodeGenerationInput; label?: string }) {
+    if (input.type === "image" && input.image)
+        return (
+            <span className="relative size-9 shrink-0 overflow-hidden rounded-md">
+                <img src={input.image.dataUrl} alt="" className="size-full object-cover" />
+                {label ? <ReferenceIndexBadge label={label} /> : null}
+            </span>
+        );
+    if (input.type === "video" && input.video)
+        return (
+            <span className="relative size-9 shrink-0 overflow-hidden rounded-md bg-black">
+                <video src={input.video.url} className="size-full object-cover" muted preload="metadata" />
+                {label ? <ReferenceIndexBadge label={label} /> : null}
+            </span>
+        );
     const Icon = input.type === "audio" ? Music2 : input.type === "video" ? Video : input.type === "image" ? ImageIcon : FileText;
     return (
-        <span className="grid size-9 shrink-0 place-items-center rounded-md bg-black/10">
+        <span className="relative grid size-9 shrink-0 place-items-center rounded-md bg-black/10">
             <Icon className="size-4" />
+            {label ? <ReferenceIndexBadge label={label} /> : null}
         </span>
     );
 }
 
-function createReferenceChip(input: NodeGenerationInput, inputs: NodeGenerationInput[], videoMode: boolean, theme: (typeof canvasThemes)[keyof typeof canvasThemes], onImagePreview: (url: string) => void) {
+function createReferenceChip(input: NodeGenerationInput, inputs: NodeGenerationInput[], videoMode: boolean, videoReferenceMode: CanvasNodeMetadata["videoReferenceMode"] | undefined, theme: (typeof canvasThemes)[keyof typeof canvasThemes], onImagePreview: (url: string) => void) {
     const wrapper = document.createElement("span");
     wrapper.contentEditable = "false";
     wrapper.dataset.referenceNodeId = input.nodeId;
+    const label = resourceLabel(input, inputs, videoMode);
+    const displayLabel = resourceDisplayLabel(input, inputs, videoMode, videoReferenceMode);
+    wrapper.title = `${displayLabel} · ${input.title}`;
+    wrapper.setAttribute("aria-label", wrapper.title);
     wrapper.className = "mx-px inline-flex h-7 max-w-40 items-center justify-center overflow-hidden rounded-md border px-1 text-xs leading-none align-middle";
     Object.assign(wrapper.style, chipStyle(theme));
     if (input.type === "image" && input.image) {
         const image = document.createElement("img");
         image.src = input.image.dataUrl;
         image.alt = input.title;
-        image.className = "size-6 rounded object-cover";
-        wrapper.className = "mx-px inline-flex size-6 items-center justify-center overflow-hidden rounded align-middle";
-        wrapper.appendChild(image);
+        image.className = "size-full rounded object-cover";
+        const badge = document.createElement("span");
+        badge.dataset.referenceIndexBadge = "true";
+        badge.className = "pointer-events-none absolute left-0.5 top-0.5 rounded bg-black/75 px-1 py-0.5 text-[9px] font-semibold leading-none text-white shadow-sm ring-1 ring-white/30";
+        badge.textContent = label;
+        wrapper.className = "relative mx-px inline-flex h-7 w-11 items-center justify-center overflow-hidden rounded align-middle";
+        wrapper.append(image, badge);
         wrapper.addEventListener("click", (event) => {
             event.preventDefault();
             event.stopPropagation();
             onImagePreview(input.image?.dataUrl || "");
         });
     } else {
-        wrapper.title = input.text || input.title;
         const text = document.createElement("span");
+        text.dataset.referenceDisplayLabel = "true";
         text.className = "block truncate";
-        text.textContent = input.type === "text" ? input.text || input.title : videoMode ? resourceLabel(input, inputs, true) : input.title;
+        text.textContent = input.type === "text" ? input.text || input.title : videoMode ? displayLabel : input.title;
         wrapper.appendChild(text);
     }
     return wrapper;
+}
+
+function refreshReferenceChipLabels(editor: HTMLElement, inputs: NodeGenerationInput[], videoMode: boolean, videoReferenceMode?: CanvasNodeMetadata["videoReferenceMode"]) {
+    const inputByNodeId = new Map(inputs.map((input) => [input.nodeId, input]));
+    editor.querySelectorAll<HTMLElement>("[data-reference-node-id]").forEach((chip) => {
+        const input = inputByNodeId.get(chip.dataset.referenceNodeId || "");
+        if (!input) return;
+        const label = resourceLabel(input, inputs, videoMode);
+        const displayLabel = resourceDisplayLabel(input, inputs, videoMode, videoReferenceMode);
+        chip.title = `${displayLabel} · ${input.title}`;
+        chip.setAttribute("aria-label", chip.title);
+        const badge = chip.querySelector<HTMLElement>("[data-reference-index-badge]");
+        if (badge) badge.textContent = label;
+        const text = chip.querySelector<HTMLElement>("[data-reference-display-label]");
+        if (text && input.type !== "text") text.textContent = videoMode ? displayLabel : input.title;
+    });
 }
 
 function serializeEditor(editor: HTMLElement) {
@@ -381,6 +423,17 @@ function resourceLabel(input: NodeGenerationInput, inputs: NodeGenerationInput[]
     if (input.type === "video") return `视频${index + 1}`;
     if (input.type === "audio") return `音频${index + 1}`;
     return `文本${index + 1}`;
+}
+
+function resourceDisplayLabel(input: NodeGenerationInput, inputs: NodeGenerationInput[], videoMode: boolean, videoReferenceMode?: CanvasNodeMetadata["videoReferenceMode"]) {
+    const label = resourceLabel(input, inputs, videoMode);
+    if (!videoMode || videoReferenceMode !== "first_last_frames" || input.type !== "image") return label;
+    const index = inputs.filter((item) => item.type === "image").findIndex((item) => item.nodeId === input.nodeId);
+    return index === 0 ? `首帧 · ${label}` : index === 1 ? `尾帧 · ${label}` : label;
+}
+
+function ReferenceIndexBadge({ label }: { label: string }) {
+    return <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-black/75 px-1 py-0.5 text-[9px] font-semibold leading-none text-white shadow-sm ring-1 ring-white/30">{label}</span>;
 }
 
 function withCandidate(inputs: NodeGenerationInput[], candidate: NodeGenerationInput) {

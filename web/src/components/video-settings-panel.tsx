@@ -5,8 +5,8 @@ import { GalleryHorizontalEnd, Image, Images, Layers3, type LucideIcon } from "l
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { getUniArtVideoCapability, resolveUniArtReferenceMode, resolveUniArtVideoParams, supportedUniArtReferenceModes, type UniArtVideoCapability, type UniArtVideoReferenceMode } from "@/lib/uniart-video";
-import { modelCapabilityOf, modelOptionName, type AiConfig } from "@/stores/use-config-store";
+import { resolveUniArtReferenceMode, resolveUniArtVideoParams, supportedUniArtReferenceModes, type UniArtVideoCapability, type UniArtVideoReferenceMode } from "@/lib/uniart-video";
+import { modelCapabilityOf, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
 
 const resolutionOptions = [
     { value: "480p", label: "480p" },
@@ -40,10 +40,10 @@ type VideoSettingsPanelProps = {
 };
 
 export function VideoSettingsPanel({ config, model, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", showReferenceModes = true }: VideoSettingsPanelProps) {
-    const selectedModel = modelOptionName(model || (modelCapabilityOf(config, config.model) === "video" ? config.model : config.videoModel || config.model));
-    const uniArtCapability = getUniArtVideoCapability(selectedModel);
+    const selectedModel = model || (modelCapabilityOf(config, config.model) === "video" ? config.model : config.videoModel || config.model);
+    const uniArtCapability = videoCapabilityOf(config, selectedModel);
     if (uniArtCapability) {
-        return <UniArtVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} model={selectedModel} capability={uniArtCapability} showReferenceModes={showReferenceModes} />;
+        return <UniArtVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} capability={uniArtCapability} showReferenceModes={showReferenceModes} />;
     }
     if (isSeedanceVideoConfig(config)) {
         return <SeedanceVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
@@ -90,50 +90,47 @@ export function VideoSettingsPanel({ config, model, onConfigChange, theme, showT
     );
 }
 
-function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className, model, capability, showReferenceModes }: VideoSettingsPanelProps & { model: string; capability: UniArtVideoCapability }) {
-    const params = resolveUniArtVideoParams(model, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality });
-    if (!params) return null;
+function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className, capability, showReferenceModes }: VideoSettingsPanelProps & { capability: UniArtVideoCapability }) {
+    const params = resolveUniArtVideoParams(capability, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality });
 
     return (
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
                 {showReferenceModes ? <ReferenceModeSettings capability={capability} value={config.videoReferenceMode} theme={theme} onChange={(value) => onConfigChange("videoReferenceMode", value)} /> : null}
-                {capability.resolutions?.length ? (
-                    <SettingGroup title="分辨率" color={theme.node.muted}>
-                        <div className="grid grid-cols-3 gap-2.5">
-                            {capability.resolutions.map((value) => (
-                                <OptionPill key={value} selected={params.resolution?.toLowerCase() === value.toLowerCase()} theme={theme} onClick={() => onConfigChange("vquality", value)}>
-                                    {resolutionTokenLabel(value)}
-                                </OptionPill>
-                            ))}
-                        </div>
-                    </SettingGroup>
-                ) : null}
+                <SettingGroup title="分辨率" color={theme.node.muted}>
+                    <div className="grid grid-cols-4 gap-2.5">
+                        {resolutionOptions.map((item) => (
+                            <OptionPill key={item.value} selected={params.resolution === item.value} theme={theme} onClick={() => onConfigChange("vquality", item.value)}>
+                                {item.label}
+                            </OptionPill>
+                        ))}
+                    </div>
+                </SettingGroup>
                 <SettingGroup title="比例" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
-                        {capability.ratios.map((value) => {
-                            const preview = ratioPreview(value);
+                        {sizeOptions.map((item) => {
+                            const preview = ratioPreview(item.value);
                             return (
                                 <button
-                                    key={value}
+                                    key={item.value}
                                     type="button"
                                     className="flex min-h-[68px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 text-sm transition hover:opacity-80"
-                                    style={{ borderColor: params.ratio === value ? theme.node.text : theme.node.stroke, color: theme.node.text }}
+                                    style={{ borderColor: params.ratio === item.value ? theme.node.text : theme.node.stroke, color: theme.node.text }}
                                     onMouseDown={(event) => event.stopPropagation()}
-                                    onClick={() => onConfigChange("size", value)}
+                                    onClick={() => onConfigChange("size", item.value)}
                                 >
                                     <SizePreview width={preview.width} height={preview.height} color={theme.node.text} />
-                                    <span>{videoRatioLabel(value)}</span>
-                                    <span className="text-[10px] leading-none opacity-55">{value === "auto" || value === "adaptive" ? "自动匹配" : value}</span>
+                                    <span>{item.label}</span>
+                                    <span className="text-[10px] leading-none opacity-55">{item.value}</span>
                                 </button>
                             );
                         })}
                     </div>
                 </SettingGroup>
-                <DurationTimeline values={capability.durations} value={params.seconds} theme={theme} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
+                <DurationTimeline values={secondOptions} value={params.seconds} theme={theme} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
                 <div className="text-xs leading-5" style={{ color: theme.node.muted }}>
-                    具体可用档位仍以所选视频服务的模型能力为准。
+                    参数最终由 UniArt 根据可用候选进行校验和路由。
                 </div>
             </div>
         </ImageSettingsTheme>
@@ -141,9 +138,9 @@ function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, cl
 }
 
 export function VideoReferenceModeSelector({ config, model, onConfigChange, theme, className = "" }: Pick<VideoSettingsPanelProps, "config" | "model" | "onConfigChange" | "theme" | "className">) {
-    const selectedModel = modelOptionName(model || config.videoModel || config.model);
-    const capability = getUniArtVideoCapability(selectedModel);
-    if (!capability) return null;
+    const selectedModel = model || config.videoModel || config.model;
+    const capability = videoCapabilityOf(config, selectedModel);
+    if (!capability || !supportedUniArtReferenceModes(capability).length) return null;
     return (
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
@@ -234,9 +231,7 @@ function ReferenceModeSettings({ capability, value, theme, onChange }: { capabil
                     );
                 })}
             </div>
-            <div className="text-[11px] leading-4" style={{ color: theme.node.muted }}>
-                当前模型最多支持 {capability.references.maxImages} 张图片、{capability.references.maxVideos} 个视频、{capability.references.maxAudios} 个音频。
-            </div>
+            <div className="text-[11px] leading-4" style={{ color: theme.node.muted }}>入口由 UniArt 模型能力声明；素材数量与组合在提交时由 UniArt 最终校验。</div>
         </SettingGroup>
     );
 }
