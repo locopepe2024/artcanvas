@@ -531,7 +531,7 @@ export default function VideoPage() {
                                         <div key={item.id} className="group relative size-20 shrink-0 overflow-hidden rounded-md border border-stone-200 dark:border-stone-800">
                                             <img src={item.dataUrl} alt={item.name} className="size-full object-cover" />
                                             <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">
-                                                {referenceLimits.mode === "first_last_frames" ? (index === 0 ? "首帧" : "尾帧") : seedanceReferenceLabel("image", index)}
+                                                {referenceLimits.mode === "first_last_frames" ? `${index === 0 ? "首帧" : "尾帧"} · ${seedanceReferenceLabel("image", index)}` : seedanceReferenceLabel("image", index)}
                                             </span>
                                             <ReferenceOrderButtons index={index} total={references.length} onMove={(offset) => setReferences((value) => moveListItem(value, index, offset))} />
                                             <button
@@ -569,7 +569,7 @@ export default function VideoPage() {
                                         {videoReferences.map((item, index) => (
                                             <div key={item.id} className="group relative h-20 w-32 shrink-0 overflow-hidden rounded-md border border-stone-200 bg-black dark:border-stone-800">
                                                 <video src={item.url} className="size-full object-cover" muted preload="metadata" />
-                                                <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">{seedanceReferenceLabel("video", index)}</span>
+                                                <span className="absolute left-1 top-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-medium text-white">{seedanceReferenceLabel("video", index, { images: references.length, videos: videoReferences.length })}</span>
                                                 <ReferenceOrderButtons index={index} total={videoReferences.length} onMove={(offset) => setVideoReferences((value) => moveListItem(value, index, offset))} />
                                                 <button
                                                     type="button"
@@ -612,7 +612,7 @@ export default function VideoPage() {
                                             <div key={item.id} className="group relative flex h-20 w-48 shrink-0 flex-col justify-center gap-2 rounded-md border border-stone-200 bg-stone-50 px-2 dark:border-stone-800 dark:bg-stone-900">
                                                 <div className="flex min-w-0 items-center gap-2 text-xs text-stone-500 dark:text-stone-400">
                                                     <Music2 className="size-4 shrink-0" />
-                                                    <span className="shrink-0 rounded bg-stone-200 px-1 text-[10px] text-stone-700 dark:bg-stone-800 dark:text-stone-200">{seedanceReferenceLabel("audio", index)}</span>
+                                                    <span className="shrink-0 rounded bg-stone-200 px-1 text-[10px] text-stone-700 dark:bg-stone-800 dark:text-stone-200">{seedanceReferenceLabel("audio", index, { images: references.length, videos: videoReferences.length })}</span>
                                                     <span className="truncate">{item.name}</span>
                                                 </div>
                                                 <audio src={item.url} controls className="h-8 w-full" preload="metadata" />

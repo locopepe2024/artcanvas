@@ -4,12 +4,14 @@ import { Button, Image } from "antd";
 import { FileText, Image as ImageIcon, Music2, Video, X } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
+import { seedanceReferenceLabel } from "@/lib/seedance-video";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { NodeGenerationInput } from "./canvas-node-generation";
 
 type CanvasConfigComposerProps = {
     value: string;
     inputs: NodeGenerationInput[];
+    videoMode: boolean;
     onChange: (value: string) => void;
     onClose: () => void;
 };
@@ -24,7 +26,7 @@ type MentionState = {
 
 export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]/g;
 
-export function CanvasConfigComposer({ value, inputs, onChange, onClose }: CanvasConfigComposerProps) {
+export function CanvasConfigComposer({ value, inputs, videoMode, onChange, onClose }: CanvasConfigComposerProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
@@ -33,12 +35,21 @@ export function CanvasConfigComposer({ value, inputs, onChange, onClose }: Canva
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const tokens = useMemo(() => parseComposerTokens(value), [value]);
     const referenceById = useMemo(() => new Map(inputs.map((input) => [input.nodeId, input])), [inputs]);
+    const selectedInputs = useMemo(() => {
+        const selected = new Map<string, NodeGenerationInput>();
+        tokens.forEach((token) => {
+            if (token.type !== "reference") return;
+            const input = referenceById.get(token.nodeId);
+            if (input && !selected.has(input.nodeId)) selected.set(input.nodeId, input);
+        });
+        return Array.from(selected.values());
+    }, [referenceById, tokens]);
     const candidates = useMemo(() => {
         if (!mention) return [];
         const query = (mention.query || "").trim().toLowerCase();
         if (!query) return inputs;
-        return inputs.filter((input) => `${resourceLabel(input, inputs)} ${input.title} ${input.text || ""}`.toLowerCase().includes(query));
-    }, [inputs, mention]);
+        return inputs.filter((input) => `${resourceLabel(input, videoMode ? withCandidate(selectedInputs, input) : inputs, videoMode)} ${input.title} ${input.text || ""}`.toLowerCase().includes(query));
+    }, [inputs, mention, selectedInputs, videoMode]);
 
     useEffect(() => {
         if (document.activeElement === editorRef.current) return;
@@ -51,9 +62,9 @@ export function CanvasConfigComposer({ value, inputs, onChange, onClose }: Canva
                 return;
             }
             const input = referenceById.get(token.nodeId);
-            if (input) editor.append(createReferenceChip(input, inputs, theme, setImagePreview));
+            if (input) editor.append(createReferenceChip(input, videoMode ? selectedInputs : inputs, videoMode, theme, setImagePreview));
         });
-    }, [inputs, referenceById, theme, tokens]);
+    }, [inputs, referenceById, selectedInputs, theme, tokens, videoMode]);
 
     const syncFromEditor = () => {
         const editor = editorRef.current;
@@ -83,7 +94,7 @@ export function CanvasConfigComposer({ value, inputs, onChange, onClose }: Canva
         const editor = editorRef.current;
         if (!editor) return;
         removeActiveMention();
-        const chip = createReferenceChip(input, inputs, theme, setImagePreview);
+        const chip = createReferenceChip(input, videoMode ? withCandidate(selectedInputs, input) : inputs, videoMode, theme, setImagePreview);
         const space = document.createTextNode(" ");
         const selection = window.getSelection();
         const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
@@ -116,7 +127,7 @@ export function CanvasConfigComposer({ value, inputs, onChange, onClose }: Canva
             <div className="mb-2 flex items-center justify-between gap-2">
                 <div className="flex min-w-0 items-baseline gap-2">
                     <div className="shrink-0 text-xs font-semibold">组装提示词</div>
-                    <div className="truncate text-[11px] opacity-55">@ 引用已连接资产，发送前按当前连接重新编号</div>
+                    <div className="truncate text-[11px] opacity-55">@ 引用已连接资产，发送前按实际引用重新编号</div>
                 </div>
                 <Button size="small" type="text" className="!h-7 !w-7 !min-w-7 !p-0" icon={<X className="size-3.5" />} onClick={onClose} />
             </div>
@@ -171,7 +182,7 @@ export function CanvasConfigComposer({ value, inputs, onChange, onClose }: Canva
                     }}
                     onBlur={() => window.setTimeout(closeMention, 120)}
                 />
-                {mention && candidates.length ? <MentionMenu inputs={candidates} allInputs={inputs} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} onSelect={insertReference} /> : null}
+                {mention && candidates.length ? <MentionMenu inputs={candidates} allInputs={inputs} selectedInputs={selectedInputs} videoMode={videoMode} activeIndex={Math.min(activeIndex, candidates.length - 1)} theme={theme} onSelect={insertReference} /> : null}
             </div>
             {imagePreview ? <Image src={imagePreview} alt="引用图片预览" style={{ display: "none" }} preview={{ visible: true, src: imagePreview, onVisibleChange: (visible) => !visible && setImagePreview(null) }} /> : null}
         </div>
@@ -179,7 +190,7 @@ export function CanvasConfigComposer({ value, inputs, onChange, onClose }: Canva
 
 }
 
-function MentionMenu({ inputs, allInputs, activeIndex, theme, onSelect }: { inputs: NodeGenerationInput[]; allInputs: NodeGenerationInput[]; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onSelect: (input: NodeGenerationInput) => void }) {
+function MentionMenu({ inputs, allInputs, selectedInputs, videoMode, activeIndex, theme, onSelect }: { inputs: NodeGenerationInput[]; allInputs: NodeGenerationInput[]; selectedInputs: NodeGenerationInput[]; videoMode: boolean; activeIndex: number; theme: (typeof canvasThemes)[keyof typeof canvasThemes]; onSelect: (input: NodeGenerationInput) => void }) {
     const selectedRef = useRef(false);
     const activeItemRef = useRef<HTMLButtonElement | null>(null);
 
@@ -210,7 +221,7 @@ function MentionMenu({ inputs, allInputs, activeIndex, theme, onSelect }: { inpu
                 >
                     <ResourcePreview input={input} />
                     <span className="min-w-0 flex-1">
-                        <span className="block font-medium">{resourceLabel(input, allInputs)}</span>
+                        <span className="block font-medium">{resourceLabel(input, videoMode ? withCandidate(selectedInputs, input) : allInputs, videoMode)}</span>
                         <span className="block truncate opacity-65">{input.text || input.title}</span>
                     </span>
                 </button>
@@ -230,7 +241,7 @@ function ResourcePreview({ input }: { input: NodeGenerationInput }) {
     );
 }
 
-function createReferenceChip(input: NodeGenerationInput, inputs: NodeGenerationInput[], theme: (typeof canvasThemes)[keyof typeof canvasThemes], onImagePreview: (url: string) => void) {
+function createReferenceChip(input: NodeGenerationInput, inputs: NodeGenerationInput[], videoMode: boolean, theme: (typeof canvasThemes)[keyof typeof canvasThemes], onImagePreview: (url: string) => void) {
     const wrapper = document.createElement("span");
     wrapper.contentEditable = "false";
     wrapper.dataset.referenceNodeId = input.nodeId;
@@ -252,7 +263,7 @@ function createReferenceChip(input: NodeGenerationInput, inputs: NodeGenerationI
         wrapper.title = input.text || input.title;
         const text = document.createElement("span");
         text.className = "block truncate";
-        text.textContent = input.type === "text" ? input.text || input.title : input.title;
+        text.textContent = input.type === "text" ? input.text || input.title : videoMode ? resourceLabel(input, inputs, true) : input.title;
         wrapper.appendChild(text);
     }
     return wrapper;
@@ -357,13 +368,23 @@ function parseComposerTokens(value: string): Token[] {
     return tokens;
 }
 
-function resourceLabel(input: NodeGenerationInput, inputs: NodeGenerationInput[]) {
+function resourceLabel(input: NodeGenerationInput, inputs: NodeGenerationInput[], videoMode: boolean) {
     const sameTypeInputs = inputs.filter((item) => item.type === input.type);
     const index = Math.max(0, sameTypeInputs.findIndex((item) => item.nodeId === input.nodeId));
+    if (videoMode && input.type !== "text") {
+        return seedanceReferenceLabel(input.type, index, {
+            images: inputs.filter((item) => item.type === "image").length,
+            videos: inputs.filter((item) => item.type === "video").length,
+        });
+    }
     if (input.type === "image") return `图片${index + 1}`;
     if (input.type === "video") return `视频${index + 1}`;
     if (input.type === "audio") return `音频${index + 1}`;
     return `文本${index + 1}`;
+}
+
+function withCandidate(inputs: NodeGenerationInput[], candidate: NodeGenerationInput) {
+    return inputs.some((input) => input.nodeId === candidate.nodeId) ? inputs : [...inputs, candidate];
 }
 
 function chipStyle(theme: (typeof canvasThemes)[keyof typeof canvasThemes]): CSSProperties {

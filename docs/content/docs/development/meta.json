@@ -7,6 +7,7 @@
     "canvas-data-structure",
     "local-codex-canvas",
     "uniart-video-parameters",
-    "canvas-video-reference-assets"
+    "canvas-video-reference-assets",
+    "video-reference-index-contract"
   ]
 }

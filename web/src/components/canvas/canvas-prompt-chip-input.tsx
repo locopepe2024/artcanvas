@@ -28,8 +28,8 @@ type Token =
     | { type: "text"; value: string }
     | { type: "reference"; label: string };
 
-// 提示词面板专用的 contentEditable 输入框:@ 引用图片时直接内嵌真实缩略图 chip,而不是「图片1」文字。
-// 序列化时 chip → 引用 label 文本(如「图片1」),保证发给生成的 value 语义与旧 textarea 版一致。
+// 提示词面板专用的 contentEditable 输入框:@ 引用图片时直接内嵌真实缩略图 chip。
+// 序列化时 chip → 当前生成模式的引用 label；视频模式使用与提交顺序一致的 @n。
 export function CanvasPromptChipInput({ value, references, onChange, onSubmit, className, style, placeholder }: Props) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
@@ -43,7 +43,7 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
 
     const activeReferences = useMemo(() => references.filter((item) => item.active), [references]);
     const referenceByLabel = useMemo(() => new Map(activeReferences.map((item) => [item.label, item])), [activeReferences]);
-    // 长 label 优先匹配,避免「图片1」把「图片10」切坏。
+    // 长 label 优先匹配，避免短编号把长编号切坏。
     const activeLabels = useMemo(() => Array.from(new Set(activeReferences.map((item) => item.label))).sort((a, b) => b.length - a.length), [activeReferences]);
     const tokens = useMemo(() => parseTokens(value, activeLabels), [value, activeLabels]);
 

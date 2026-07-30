@@ -17,7 +17,8 @@ export type CanvasResourceReference = {
 };
 
 export function buildNodeMentionReferences(node: CanvasNodeData, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
-    return labelResourceNodes(getMentionResourceNodes(node.id, nodes, connections), true);
+    const videoMode = node.type === CanvasNodeType.Video || node.metadata?.generationMode === "video";
+    return labelResourceNodes(getMentionResourceNodes(node.id, nodes, connections), true, videoMode);
 }
 
 export function getMentionResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
@@ -50,13 +51,21 @@ function getConnectedConfigResourceNodes(nodeId: string, nodes: CanvasNodeData[]
     return getContextResourceNodes(configConnection.toNodeId, nodes, connections).filter((node) => node.id !== nodeId);
 }
 
-function labelResourceNodes(nodes: CanvasNodeData[], active: boolean) {
+function labelResourceNodes(nodes: CanvasNodeData[], active: boolean, videoMode: boolean) {
     const counts: Record<CanvasResourceKind, number> = { image: 0, video: 0, audio: 0, text: 0 };
+    const totals = nodes.reduce(
+        (result, node) => {
+            const kind = resourceKind(node);
+            if (kind) result[kind] += 1;
+            return result;
+        },
+        { image: 0, video: 0, audio: 0, text: 0 } as Record<CanvasResourceKind, number>,
+    );
     return nodes.flatMap((node): CanvasResourceReference[] => {
         const kind = resourceKind(node);
         if (!kind) return [];
         const index = counts[kind]++;
-        const label = labelForKind(kind, index);
+        const label = labelForKind(kind, index, totals, videoMode);
         return [
             {
                 id: node.id,
@@ -72,10 +81,13 @@ function labelResourceNodes(nodes: CanvasNodeData[], active: boolean) {
     });
 }
 
-function labelForKind(kind: CanvasResourceKind, index: number) {
-    if (kind === "image") return imageReferenceLabel(index);
-    if (kind === "video") return seedanceReferenceLabel("video", index);
-    if (kind === "audio") return seedanceReferenceLabel("audio", index);
+function labelForKind(kind: CanvasResourceKind, index: number, totals: Record<CanvasResourceKind, number>, videoMode: boolean) {
+    if (!videoMode) {
+        if (kind === "image") return imageReferenceLabel(index);
+        if (kind === "video") return `视频${index + 1}`;
+        if (kind === "audio") return `音频${index + 1}`;
+    }
+    if (kind === "image" || kind === "video" || kind === "audio") return seedanceReferenceLabel(kind, index, { images: totals.image, videos: totals.video });
     return `文本${index + 1}`;
 }
 
