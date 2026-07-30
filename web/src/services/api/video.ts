@@ -5,7 +5,7 @@ import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { resolveUniArtReferenceLimits, resolveUniArtVideoParams, type UniArtVideoCapability } from "@/lib/uniart-video";
+import { resolveUniArtReferenceLimits, resolveUniArtVideoParams, uniArtVideoSubmissionError, type UniArtVideoCapability } from "@/lib/uniart-video";
 import { buildApiUrl, modelCapabilityOf, modelOptionName, resolveModelRequestConfig, resolveModelScript, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/types/image";
@@ -172,6 +172,9 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     const requestModel = modelOptionName(model);
     const capability = videoCapabilityOf(config, model);
     if (capability) {
+        const limits = resolveUniArtReferenceLimits(capability, config.videoReferenceMode);
+        const submissionError = uniArtVideoSubmissionError(limits.mode, prompt, { images: references.length, videos: videoReferences.length, audios: audioReferences.length });
+        if (submissionError) throw new Error(submissionError);
         const uniArtParams = resolveUniArtVideoParams(capability, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality });
         try {
             const metadata = await buildUniArtVideoMetadata(config, uniArtParams.capability, uniArtParams.ratio, uniArtParams.resolution, references, videoReferences, audioReferences, options);
@@ -184,6 +187,8 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
             throw new Error(readAxiosError(error, "视频任务创建失败"));
         }
     }
+
+    if (!prompt.trim()) throw new Error("请输入视频提示词");
 
     const body = new FormData();
     body.append("model", requestModel);

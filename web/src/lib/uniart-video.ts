@@ -13,6 +13,7 @@ export type UniArtVideoReferenceLimits = {
 // These are browser upload safety ceilings, not provider or model capability
 // limits. UniArt remains authoritative for numeric admission.
 const CLIENT_IMAGE_UPLOAD_CEILING = 20;
+const IMAGE_REFERENCE_UPLOAD_LIMIT = 9;
 const CLIENT_MEDIA_UPLOAD_CEILING = 10;
 
 export function resolveUniArtVideoParams(capability: UniArtVideoCapability, values: { seconds?: string; ratio?: string; resolution?: string }) {
@@ -42,7 +43,7 @@ export function resolveUniArtReferenceLimits(capability: UniArtVideoCapability, 
     const mode = resolveUniArtReferenceMode(capability, requested);
     if (mode === "image_to_video") return { mode, maxImages: 1, maxVideos: 0, maxAudios: 0 };
     if (mode === "first_last_frames") return { mode, maxImages: 2, maxVideos: 0, maxAudios: 0 };
-    if (mode === "image_reference") return { mode, maxImages: CLIENT_IMAGE_UPLOAD_CEILING, maxVideos: 0, maxAudios: 0 };
+    if (mode === "image_reference") return { mode, maxImages: IMAGE_REFERENCE_UPLOAD_LIMIT, maxVideos: 0, maxAudios: 0 };
     const inputs = capability.modes.find((item) => item.id === "omni_reference")?.inputTypes || [];
     return {
         mode,
@@ -52,8 +53,19 @@ export function resolveUniArtReferenceLimits(capability: UniArtVideoCapability, 
     };
 }
 
-export function allowsPromptlessFirstLastFrames(mode: string | undefined, imageCount: number, videoCount = 0, audioCount = 0) {
-    return mode === "first_last_frames" && imageCount === 2 && videoCount === 0 && audioCount === 0;
+export function uniArtVideoSubmissionError(
+    mode: UniArtVideoReferenceMode,
+    prompt: string,
+    counts: { images: number; videos: number; audios: number },
+) {
+    const { images, videos, audios } = counts;
+    const mediaCount = images + videos + audios;
+    if (!mediaCount) return prompt.trim() ? null : "文生视频需要填写提示词，或添加当前模式所需的参考素材";
+    if (mode === "image_to_video" && (images !== 1 || videos || audios)) return "图生视频模式需要且只能使用 1 张图片";
+    if (mode === "image_reference" && (images < 1 || images > IMAGE_REFERENCE_UPLOAD_LIMIT || videos || audios)) return "图片参考模式需要使用 1 至 9 张图片";
+    if (mode === "first_last_frames" && (images !== 2 || videos || audios)) return "首尾帧模式需要且只能使用 2 张图片，第 1 张为首帧，第 2 张为尾帧";
+    if (mode === "omni_reference" && mediaCount < 1) return "全能参考模式至少需要 1 个图片、视频或音频素材";
+    return null;
 }
 
 function normalizeRatio(value: string) {

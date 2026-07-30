@@ -3,7 +3,7 @@ import { ArrowUp, LoaderCircle, Square } from "lucide-react";
 import { Button } from "antd";
 
 import { ModelPicker } from "@/components/model-picker";
-import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
@@ -12,7 +12,7 @@ import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas
 import { CanvasPromptChipInput } from "./canvas-prompt-chip-input";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
-import { allowsPromptlessFirstLastFrames } from "@/lib/uniart-video";
+import { resolveUniArtReferenceLimits, uniArtVideoSubmissionError } from "@/lib/uniart-video";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 
@@ -40,15 +40,20 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const hasImageContent = node.type === CanvasNodeType.Image && Boolean(node.metadata?.content);
     const isEditingExistingContent = hasTextContent || hasImageContent;
     const [prompt, setPrompt] = useState(node.metadata?.prompt || "");
-    const promptlessFrames =
-        mode === "video" &&
-        allowsPromptlessFirstLastFrames(
-            config.videoReferenceMode,
-            mentionReferences.filter((reference) => reference.active && reference.kind === "image").length,
-            mentionReferences.filter((reference) => reference.active && reference.kind === "video").length,
-            mentionReferences.filter((reference) => reference.active && reference.kind === "audio").length,
-        );
-    const canSubmit = Boolean(prompt.trim()) || promptlessFrames;
+    const activeReferences = mentionReferences.filter((reference) => reference.active);
+    const referencePrompt = activeReferences.find((reference) => reference.kind === "text" && reference.text?.trim())?.text || "";
+    const videoCapability = mode === "video" ? videoCapabilityOf(config, config.model) : undefined;
+    const submissionError =
+        mode === "video" && videoCapability
+            ? uniArtVideoSubmissionError(resolveUniArtReferenceLimits(videoCapability, config.videoReferenceMode).mode, prompt.trim() || referencePrompt, {
+                  images: activeReferences.filter((reference) => reference.kind === "image").length,
+                  videos: activeReferences.filter((reference) => reference.kind === "video").length,
+                  audios: activeReferences.filter((reference) => reference.kind === "audio").length,
+              })
+            : prompt.trim()
+              ? null
+              : "请输入提示词";
+    const canSubmit = !submissionError;
 
     // 仅在切换到其它节点时恢复对应提示词;同一节点生成完成后继续保留当前输入。
     useEffect(() => {
