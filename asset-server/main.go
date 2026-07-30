@@ -74,7 +74,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", server.health)
 	mux.HandleFunc("/api/video-assets", server.upload)
-	mux.HandleFunc("/assets/", server.read)
+	mux.HandleFunc("/video-assets/", server.read)
 	log.Printf("ArtCanvas asset server listening on 127.0.0.1:3001, root=%s", server.config.root)
 	log.Fatal((&http.Server{Addr: "127.0.0.1:3001", Handler: mux, ReadHeaderTimeout: 10 * time.Second, MaxHeaderBytes: 1 << 20}).ListenAndServe())
 }
@@ -180,7 +180,7 @@ func (s *assetServer) upload(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "finalize uploaded file failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"id": id, "path": "/assets/" + id, "expires_at": time.Now().Add(s.config.ttl).Unix()})
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "path": "/video-assets/" + id, "expires_at": time.Now().Add(s.config.ttl).Unix()})
 }
 
 func (s *assetServer) read(w http.ResponseWriter, r *http.Request) {
@@ -189,7 +189,7 @@ func (s *assetServer) read(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	id := strings.TrimPrefix(r.URL.Path, "/assets/")
+	id := strings.TrimPrefix(r.URL.Path, "/video-assets/")
 	if !assetIDPattern.MatchString(id) {
 		http.NotFound(w, r)
 		return

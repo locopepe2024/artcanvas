@@ -13,7 +13,7 @@ description: 浏览器本地参考素材的短期公网访问设计
 
 - 浏览器继续使用 IndexedDB 保存用户的长期本地素材。
 - ArtCanvas 临时素材服务只保存本次生成需要被上游模型读取的副本。
-- UniArt 请求只接收 `https://canvas.uniart.fun/assets/...` URL，不提供 Canvas 素材上传接口。
+- UniArt 请求只接收 `https://canvas.uniart.fun/video-assets/...` URL，不提供 Canvas 素材上传接口。
 - 上游模型读取 URL 不需要 Canvas 登录态，因此 URL 必须使用不可猜的随机标识并自动过期。
 
 ## 接口
@@ -25,7 +25,7 @@ description: 浏览器本地参考素材的短期公网访问设计
 - 允许图片、视频和音频；图片最大 30 MiB、视频最大 200 MiB、音频最大 15 MiB。
 - 按客户端 IP 限流，并在写入前检查临时素材目录总容量。
 
-### `GET /assets/:asset_id`
+### `GET /video-assets/:asset_id`
 
 - 无需鉴权，供视频模型供应商读取。
 - 支持标准 HTTP Range 请求。

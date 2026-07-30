@@ -51,7 +51,7 @@ func TestExpiredAssetReturnsNotFound(t *testing.T) {
 	}
 	server := newAssetServer(config{root: root, ttl: time.Hour, maxTotalBytes: 1 << 20, uploadsPerHour: 10})
 	response := httptest.NewRecorder()
-	server.read(response, httptest.NewRequest(http.MethodGet, "/assets/"+id, nil))
+	server.read(response, httptest.NewRequest(http.MethodGet, "/video-assets/"+id, nil))
 	if response.Code != http.StatusNotFound {
 		t.Fatalf("status=%d", response.Code)
 	}
