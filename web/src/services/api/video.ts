@@ -5,6 +5,7 @@ import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import { resolveUniArtVideoParams } from "@/lib/uniart-video";
 import { buildApiUrl, modelOptionName, resolveModelRequestConfig, resolveModelScript, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/types/image";
@@ -133,13 +134,20 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
 }
 
 async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    const requestModel = modelOptionName(model);
+    const uniArtParams = resolveUniArtVideoParams(requestModel, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality });
     const body = new FormData();
-    body.append("model", modelOptionName(model));
+    body.append("model", requestModel);
     body.append("prompt", prompt);
-    body.append("seconds", normalizeVideoSeconds(config.videoSeconds));
-    if (normalizeVideoSize(config.size)) body.append("size", normalizeVideoSize(config.size)!);
-    body.append("resolution_name", normalizeVideoResolution(config.vquality));
-    body.append("preset", "normal");
+    body.append("seconds", String(uniArtParams?.seconds || normalizeVideoSeconds(config.videoSeconds)));
+    if (uniArtParams) {
+        body.append("ratio", uniArtParams.ratio);
+        if (uniArtParams.resolution) body.append("resolution", uniArtParams.resolution);
+    } else {
+        if (normalizeVideoSize(config.size)) body.append("size", normalizeVideoSize(config.size)!);
+        body.append("resolution_name", normalizeVideoResolution(config.vquality));
+        body.append("preset", "normal");
+    }
     const files = await Promise.all(references.slice(0, 7).map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
     files.forEach((file) => body.append("input_reference[]", file));
     try {

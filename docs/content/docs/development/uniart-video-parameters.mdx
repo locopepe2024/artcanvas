@@ -1,0 +1,62 @@
+---
+title: UniArt 视频参数契约
+description: ArtCanvas 对 UniArt 视频模型能力与请求字段的适配边界
+---
+
+# UniArt 视频参数契约
+
+## 目标
+
+让 ArtCanvas 在选择 UniArt 视频模型时，只展示该模型实际接受的时长、比例和分辨率，并把这些设置发送到 UniArt `/v1/videos` 的正确字段中。
+
+## 已观察事实
+
+- ArtCanvas 通过用户配置的 Base URL 和 API Key 调用 `/v1/models` 与 `/v1/videos`。
+- UniArt `/v1/models` 只返回 OpenAI 模型列表，不包含时长、比例、分辨率或参考素材上限。
+- UniArt `/api/pricing` 需要站点登录会话，返回价格和端点类型，但当前也不返回结构化的视频能力对象。
+- UniArt 定价页显示的“支持参数”由定价前端根据模型名称推断，不是 `/api/pricing` 响应中的参数契约。
+- 通用 Infinite Canvas 视频请求固定发送 `seconds`、`size`、`resolution_name` 和 `preset`，无法表达 UniArt 适配器要求的 `metadata.ratio` 与 `metadata.resolution`。
+
+## 直接结论
+
+当前版本不能声称从 pricing API 动态同步视频能力。第一版使用与 UniArt 已部署公共模型 ID 对齐的显式能力表，并把来源边界标记为 `uniart-static-v1`。
+
+长期方案是在 UniArt 增加 API Key 可访问的结构化模型能力接口；届时 ArtCanvas 才能移除静态能力表并动态同步。
+
+## v1 范围
+
+- 识别三类 UniArt 公共视频模型：
+  - GlobalAI：`sd_2.0_*`
+  - Sudashui：`ua-sd20-07-*`
+  - MEAI：`ua-sd20-09-*`
+- 按精确公共模型 ID 约束可选时长、比例和固定分辨率。
+- 模型切换后，如果原设置不被新模型支持，请求时选择该模型的默认合法值，不发送不可用值。
+- UniArt 模型继续调用 OpenAI 兼容的 `POST /v1/videos`，但使用适配器接受的字段：
+  - 顶层：`model`、`prompt`、`seconds`
+  - metadata 表单字段：`ratio`，以及 MEAI/GlobalAI 需要的 `resolution`
+- 不再为 UniArt 模型发送无效的 `resolution_name` 和 `preset`。
+- 非 UniArt 模型保持原有通用请求和设置行为。
+
+## v1 非范围
+
+- 不新增或修改 UniArt 后端 API。
+- 不宣称支持 pricing API 动态同步。
+- 不改变 API Key、本地画布或素材仍保存在浏览器本地的边界。
+- 不扩大参考视频、参考音频和首尾帧能力；这些路径需要单独验证上传 URL、数量限制和总时长约束。
+
+## 成功标准
+
+1. MEAI 模型显示 4–15 秒、已验证比例和 720P/1080P。
+2. Sudashui 模型按精确公共 ID 显示已验证时长和比例。
+3. GlobalAI 模型显示 4–15 秒、已验证比例和模型固定分辨率。
+4. UniArt 请求不包含 `resolution_name` 或 `preset`，比例写入 `ratio`，时长写入顶层 `seconds`。
+5. 非 UniArt 模型的通用视频请求保持不变。
+6. 前端构建通过；部署镜像与 Git 提交可对应；HTTPS 首页和静态资源返回成功。
+
+## 受影响路径
+
+- `web/src/lib/uniart-video.ts`
+- `web/src/components/video-settings-panel.tsx`
+- `web/src/services/api/video.ts`
+- `CHANGELOG.md`
+- `docs/content/docs/progress/pending-test.mdx`

@@ -4,7 +4,8 @@ import { Switch } from "antd";
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
-import { type AiConfig } from "@/stores/use-config-store";
+import { getUniArtVideoCapability, resolveUniArtVideoParams, type UniArtVideoCapability } from "@/lib/uniart-video";
+import { modelCapabilityOf, modelOptionName, type AiConfig } from "@/stores/use-config-store";
 
 const resolutionOptions = [
     { value: "720", label: "720p" },
@@ -35,6 +36,11 @@ type VideoSettingsPanelProps = {
 };
 
 export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5" }: VideoSettingsPanelProps) {
+    const selectedModel = modelOptionName(modelCapabilityOf(config, config.model) === "video" ? config.model : config.videoModel || config.model);
+    const uniArtCapability = getUniArtVideoCapability(selectedModel);
+    if (uniArtCapability) {
+        return <UniArtVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} model={selectedModel} capability={uniArtCapability} />;
+    }
     if (isSeedanceVideoConfig(config)) {
         return <SeedanceVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
     }
@@ -104,6 +110,60 @@ export function VideoSettingsPanel({ config, onConfigChange, theme, showTitle = 
     );
 }
 
+function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className, model, capability }: VideoSettingsPanelProps & { model: string; capability: UniArtVideoCapability }) {
+    const params = resolveUniArtVideoParams(model, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality });
+    if (!params) return null;
+
+    return (
+        <ImageSettingsTheme theme={theme}>
+            <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
+                {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
+                {capability.resolutions?.length ? (
+                    <SettingGroup title="分辨率" color={theme.node.muted}>
+                        <div className="grid grid-cols-3 gap-2.5">
+                            {capability.resolutions.map((value) => (
+                                <OptionPill key={value} selected={params.resolution?.toLowerCase() === value.toLowerCase()} theme={theme} onClick={() => onConfigChange("vquality", value)}>
+                                    {resolutionTokenLabel(value)}
+                                </OptionPill>
+                            ))}
+                        </div>
+                    </SettingGroup>
+                ) : null}
+                <SettingGroup title="比例" color={theme.node.muted}>
+                    <div className="grid grid-cols-3 gap-2.5">
+                        {capability.ratios.map((value) => {
+                            const preview = ratioPreview(value);
+                            return (
+                                <button
+                                    key={value}
+                                    type="button"
+                                    className="flex min-h-[68px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 text-sm transition hover:opacity-80"
+                                    style={{ borderColor: params.ratio === value ? theme.node.text : theme.node.stroke, color: theme.node.text }}
+                                    onMouseDown={(event) => event.stopPropagation()}
+                                    onClick={() => onConfigChange("size", value)}
+                                >
+                                    <SizePreview width={preview.width} height={preview.height} color={theme.node.text} />
+                                    <span>{videoRatioLabel(value)}</span>
+                                    <span className="text-[10px] leading-none opacity-55">{value === "auto" || value === "adaptive" ? "自动匹配" : value}</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+                </SettingGroup>
+                <SettingGroup title="时长" color={theme.node.muted}>
+                    <div className="grid grid-cols-4 gap-2.5">
+                        {capability.durations.map((value) => (
+                            <OptionPill key={value} selected={params.seconds === value} theme={theme} onClick={() => onConfigChange("videoSeconds", String(value))}>
+                                {value}s
+                            </OptionPill>
+                        ))}
+                    </div>
+                </SettingGroup>
+            </div>
+        </ImageSettingsTheme>
+    );
+}
+
 function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps) {
     const resolution = normalizeSeedanceResolution(config.vquality);
     const ratio = normalizeSeedanceRatio(config.size);
@@ -164,10 +224,11 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
 }
 
 export function videoResolutionLabel(value: string) {
-    return `${normalizeVideoResolutionValue(value)}p`;
+    return resolutionTokenLabel(value);
 }
 
 export function videoSizeLabel(value: string) {
+    if (/^\d+:\d+$/.test(value || "")) return videoRatioLabel(value);
     const ratio = normalizeSeedanceRatio(value);
     if (value === "adaptive" || value === "auto") return "自适应";
     if (ratio === value) return seedanceRatioOptions.find((item) => item.value === ratio)?.label || ratio;
@@ -251,8 +312,19 @@ function ratioPreview(ratio: string) {
     if (ratio === "4:3") return { width: 4, height: 3 };
     if (ratio === "3:4") return { width: 3, height: 4 };
     if (ratio === "21:9") return { width: 21, height: 9 };
-    if (ratio === "adaptive") return { width: 0, height: 0 };
+    if (ratio === "adaptive" || ratio === "auto") return { width: 0, height: 0 };
     return { width: 16, height: 9 };
+}
+
+function videoRatioLabel(value: string) {
+    if (value === "auto" || value === "adaptive") return "自适应";
+    return seedanceRatioOptions.find((item) => item.value === value)?.label || value;
+}
+
+function resolutionTokenLabel(value: string) {
+    const normalized = String(value || "720").trim();
+    if (/^\d+(?:p|k)$/i.test(normalized)) return normalized.toLowerCase();
+    return `${normalizeVideoResolutionValue(normalized)}p`;
 }
 
 function SwitchRow({ label, checked, theme, onChange }: { label: string; checked: boolean; theme: CanvasTheme; onChange: (checked: boolean) => void }) {
