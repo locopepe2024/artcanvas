@@ -19,6 +19,8 @@ type VideoResponse = {
     result_url?: string;
     video_url?: string;
     object?: string;
+    requires_auth?: boolean;
+    content_type?: string;
     metadata?: { url?: string; video_url?: string } | null;
     content?: { video_url?: string; url?: string } | null;
 };
@@ -33,7 +35,7 @@ type SeedanceTask = {
     video_url?: string;
 };
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string; error?: { message?: string } };
-type StoredVideoTask = { task_id?: string; status?: string; fail_reason?: string; result_url?: string };
+type StoredVideoTask = { task_id?: string; status?: string; fail_reason?: string; result_url?: string; requires_auth?: boolean; content_type?: string };
 type RequestOptions = { signal?: AbortSignal };
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
@@ -278,11 +280,9 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
     try {
         const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
         const url = videoResultUrl(video);
-        if (url) return { status: "completed", result: await videoResultFromUrl(url, options) };
+        if (url) return { status: "completed", result: await resolveOpenAIVideoResult(config, url, video.requires_auth, video.content_type, options) };
         if (video.status === "completed") {
-            const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), responseType: "blob", signal: options?.signal });
-            await assertVideoBlob(content.data);
-            return { status: "completed", result: { blob: content.data } };
+            return { status: "completed", result: await resolveOpenAIVideoResult(config, aiApiUrl(config, `/videos/${task.id}/content`), true, "video/mp4", options) };
         }
         if (video.status === "failed" || video.status === "cancelled") return { status: "failed", error: readApiErrorMessage(video.error?.message) || "视频生成失败" };
         return { status: "pending" };
@@ -303,13 +303,7 @@ async function pollStoredVideoTask(config: AiConfig, task: VideoGenerationTask, 
         if (status === "SUCCESS") {
             const resultUrl = payload.data.result_url?.trim();
             if (!resultUrl) return { status: "failed", error: "视频任务已完成，但持久任务记录没有结果地址" };
-            const resolvedUrl = resolveStoredVideoResultUrl(config, resultUrl);
-            if (isAuthenticatedVideoContentUrl(config, resolvedUrl)) {
-                const content = await axios.get<Blob>(resolvedUrl, { headers: aiHeaders(config), responseType: "blob", signal: options?.signal, timeout: 20000 });
-                await assertVideoBlob(content.data);
-                return { status: "completed", result: { blob: content.data } };
-            }
-            return { status: "completed", result: { url: resolvedUrl, mimeType: "video/mp4" } };
+            return { status: "completed", result: await resolveOpenAIVideoResult(config, resultUrl, payload.data.requires_auth, payload.data.content_type, options) };
         }
         if (status === "FAILURE") return { status: "failed", error: payload.data.fail_reason || "视频生成失败" };
         return { status: "pending" };
@@ -326,6 +320,14 @@ function resolveStoredVideoResultUrl(config: AiConfig, resultUrl: string) {
     } catch {
         return resultUrl;
     }
+}
+
+async function resolveOpenAIVideoResult(config: AiConfig, resultUrl: string, requiresAuth: boolean | undefined, contentType = "video/mp4", options?: RequestOptions): Promise<VideoGenerationResult> {
+    const resolvedUrl = resolveStoredVideoResultUrl(config, resultUrl);
+    if (!(requiresAuth ?? isAuthenticatedVideoContentUrl(config, resolvedUrl))) return { url: resolvedUrl, mimeType: contentType || "video/mp4" };
+    const content = await axios.get<Blob>(resolvedUrl, { headers: aiHeaders(config), responseType: "blob", signal: options?.signal, timeout: 20000 });
+    await assertVideoBlob(content.data);
+    return { blob: content.data };
 }
 
 function isAuthenticatedVideoContentUrl(config: AiConfig, resultUrl: string) {
@@ -500,7 +502,7 @@ function unwrapEnvelope<T>(payload: ApiEnvelope<T>, emptyMessage: string): T {
 function videoResultUrl(payload: VideoResponse | SeedanceTask) {
     const video = payload as VideoResponse;
     return [payload.video_url, payload.result_url, payload.url, video.metadata?.video_url, video.metadata?.url, video.object, payload.content?.video_url, payload.content?.url].find(
-        (url) => typeof url === "string" && (isPublicMediaUrl(url) || /\.mp4(\?|#|$)/i.test(url)),
+        (url) => typeof url === "string" && (isPublicMediaUrl(url) || url.startsWith("/") || /\.mp4(\?|#|$)/i.test(url)),
     );
 }
 
