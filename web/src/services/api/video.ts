@@ -303,7 +303,13 @@ async function pollStoredVideoTask(config: AiConfig, task: VideoGenerationTask, 
         if (status === "SUCCESS") {
             const resultUrl = payload.data.result_url?.trim();
             if (!resultUrl) return { status: "failed", error: "视频任务已完成，但持久任务记录没有结果地址" };
-            return { status: "completed", result: { url: resolveStoredVideoResultUrl(config, resultUrl), mimeType: "video/mp4" } };
+            const resolvedUrl = resolveStoredVideoResultUrl(config, resultUrl);
+            if (isAuthenticatedVideoContentUrl(config, resolvedUrl)) {
+                const content = await axios.get<Blob>(resolvedUrl, { headers: aiHeaders(config), responseType: "blob", signal: options?.signal, timeout: 20000 });
+                await assertVideoBlob(content.data);
+                return { status: "completed", result: { blob: content.data } };
+            }
+            return { status: "completed", result: { url: resolvedUrl, mimeType: "video/mp4" } };
         }
         if (status === "FAILURE") return { status: "failed", error: payload.data.fail_reason || "视频生成失败" };
         return { status: "pending" };
@@ -319,6 +325,16 @@ function resolveStoredVideoResultUrl(config: AiConfig, resultUrl: string) {
         return new URL(resultUrl, config.baseUrl).toString();
     } catch {
         return resultUrl;
+    }
+}
+
+function isAuthenticatedVideoContentUrl(config: AiConfig, resultUrl: string) {
+    try {
+        const target = new URL(resultUrl);
+        const api = new URL(buildApiUrl(config.baseUrl, "/"));
+        return target.origin === api.origin && /\/videos\/[^/]+\/content\/?$/i.test(target.pathname);
+    } catch {
+        return false;
     }
 }
 
