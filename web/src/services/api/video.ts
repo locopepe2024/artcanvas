@@ -154,7 +154,7 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
     if (result.blob) return uploadMediaFile(result.blob, "video");
     if (result.url) {
         const controller = new AbortController();
-        const timeout = window.setTimeout(() => controller.abort(), 10000);
+        const timeout = window.setTimeout(() => controller.abort(), 20000);
         try {
             const response = await fetch(result.url, { signal: controller.signal });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
