@@ -229,8 +229,8 @@ function runVideoWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
         configStore.updateConfig("videoWatermark", String(input.watermark));
         applied.watermark = input.watermark;
     }
-    if (["image_to_video", "image_reference", "first_last_frames", "omni_reference"].includes(String(input.referenceMode))) {
-        configStore.updateConfig("videoReferenceMode", input.referenceMode as "image_to_video" | "image_reference" | "first_last_frames" | "omni_reference");
+    if (["text_to_video", "image_to_video", "image_reference", "first_last_frames", "omni_reference"].includes(String(input.referenceMode))) {
+        configStore.updateConfig("videoReferenceMode", input.referenceMode as AiConfig["videoReferenceMode"]);
         applied.referenceMode = input.referenceMode;
     }
     const prompt = typeof input.prompt === "string" ? input.prompt : undefined;

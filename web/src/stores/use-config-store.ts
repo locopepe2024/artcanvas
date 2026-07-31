@@ -6,7 +6,7 @@ import { nanoid } from "nanoid";
 export type ApiCallFormat = "openai" | "gemini" | "ark";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
-export type VideoReferenceMode = "image_to_video" | "image_reference" | "first_last_frames" | "omni_reference";
+export type VideoReferenceMode = "text_to_video" | "image_to_video" | "image_reference" | "first_last_frames" | "omni_reference";
 export type VideoCapabilityModeId = "text_to_video" | "image_to_video" | "image_reference" | "first_last_frame" | "omni_reference";
 export type VideoCapability = {
     modes: Array<{ id: VideoCapabilityModeId; inputTypes: Array<"text" | "image" | "video" | "audio"> }>;

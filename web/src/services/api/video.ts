@@ -222,6 +222,7 @@ async function buildUniArtVideoMetadata(
 ) {
     const limits = resolveUniArtReferenceLimits(capability, config.videoReferenceMode);
     const mode = limits.mode;
+    if (mode === "text_to_video") return { ratio, ...(resolution ? { resolution } : {}) };
     const hasReferences = references.length + videoReferences.length + audioReferences.length > 0;
     if (!hasReferences) return { ratio, ...(resolution ? { resolution } : {}) };
     if (references.length > limits.maxImages) throw new Error("参考图片超过画布单次上传安全上限");

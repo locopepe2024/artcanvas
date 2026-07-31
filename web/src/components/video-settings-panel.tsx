@@ -1,6 +1,6 @@
 import { type ReactNode } from "react";
 import { Switch } from "antd";
-import { GalleryHorizontalEnd, Image, Images, Layers3, type LucideIcon } from "lucide-react";
+import { FileText, GalleryHorizontalEnd, Image, Images, Layers3, type LucideIcon } from "lucide-react";
 
 import { ImageSettingsTheme } from "@/components/image-settings-panel";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
@@ -201,6 +201,7 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
 }
 
 const referenceModeLabels: Record<UniArtVideoReferenceMode, { title: string; icon: LucideIcon }> = {
+    text_to_video: { title: "文生视频", icon: FileText },
     image_to_video: { title: "图生视频", icon: Image },
     image_reference: { title: "图片参考", icon: Images },
     first_last_frames: { title: "首尾帧", icon: GalleryHorizontalEnd },
@@ -211,22 +212,22 @@ function ReferenceModeSettings({ capability, value, theme, onChange }: { capabil
     const modes = supportedUniArtReferenceModes(capability);
     const selected = resolveUniArtReferenceMode(capability, value);
     return (
-        <SettingGroup title="参考方式" color={theme.node.muted}>
-            <div className="grid grid-cols-2 gap-2.5">
+        <SettingGroup title="生成方式" color={theme.node.muted}>
+            <div className="grid grid-cols-5 gap-1.5">
                 {modes.map((mode) => {
                     const Icon = referenceModeLabels[mode].icon;
                     return (
                         <button
                             key={mode}
                             type="button"
-                            className="flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border bg-transparent px-2 text-sm font-medium transition hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                            className="flex min-h-11 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 text-xs font-medium transition hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                             style={{ borderColor: selected === mode ? theme.node.text : theme.node.stroke, color: theme.node.text }}
                             aria-pressed={selected === mode}
                             onMouseDown={(event) => event.stopPropagation()}
                             onClick={() => onChange(mode)}
                         >
-                            <Icon className="size-4 shrink-0" />
-                            <span>{referenceModeLabels[mode].title}</span>
+                            <Icon className="size-3.5 shrink-0" />
+                            <span className="whitespace-nowrap">{referenceModeLabels[mode].title}</span>
                         </button>
                     );
                 })}

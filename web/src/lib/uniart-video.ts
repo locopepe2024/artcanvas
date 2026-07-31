@@ -26,6 +26,7 @@ export function resolveUniArtVideoParams(capability: UniArtVideoCapability, valu
 
 export function supportedUniArtReferenceModes(capability: UniArtVideoCapability): UniArtVideoReferenceMode[] {
     const modes: UniArtVideoReferenceMode[] = [];
+    if (capability.modes.some((mode) => mode.id === "text_to_video")) modes.push("text_to_video");
     if (capability.modes.some((mode) => mode.id === "image_to_video")) modes.push("image_to_video");
     if (capability.modes.some((mode) => mode.id === "image_reference")) modes.push("image_reference");
     if (capability.modes.some((mode) => mode.id === "first_last_frame")) modes.push("first_last_frames");
@@ -41,6 +42,7 @@ export function resolveUniArtReferenceMode(capability: UniArtVideoCapability, re
 export function resolveUniArtReferenceLimits(capability: UniArtVideoCapability, requested?: string): UniArtVideoReferenceLimits {
     if (!supportedUniArtReferenceModes(capability).length) return { mode: "image_reference", maxImages: 0, maxVideos: 0, maxAudios: 0 };
     const mode = resolveUniArtReferenceMode(capability, requested);
+    if (mode === "text_to_video") return { mode, maxImages: 0, maxVideos: 0, maxAudios: 0 };
     if (mode === "image_to_video") return { mode, maxImages: 1, maxVideos: 0, maxAudios: 0 };
     if (mode === "first_last_frames") return { mode, maxImages: 2, maxVideos: 0, maxAudios: 0 };
     if (mode === "image_reference") return { mode, maxImages: IMAGE_REFERENCE_UPLOAD_LIMIT, maxVideos: 0, maxAudios: 0 };
@@ -60,7 +62,7 @@ export function uniArtVideoSubmissionError(
 ) {
     const { images, videos, audios } = counts;
     const mediaCount = images + videos + audios;
-    if (!mediaCount) return prompt.trim() ? null : "文生视频需要填写提示词，或添加当前模式所需的参考素材";
+    if (mode === "text_to_video") return prompt.trim() ? null : "文生视频需要填写提示词";
     if (mode === "image_to_video" && (images !== 1 || videos || audios)) return "图生视频模式需要且只能使用 1 张图片";
     if (mode === "image_reference" && (images < 1 || images > IMAGE_REFERENCE_UPLOAD_LIMIT || videos || audios)) return "图片参考模式需要使用 1 至 9 张图片";
     if (mode === "first_last_frames" && (images !== 2 || videos || audios)) return "首尾帧模式需要且只能使用 2 张图片，第 1 张为首帧，第 2 张为尾帧";
