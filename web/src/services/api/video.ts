@@ -158,7 +158,7 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
         try {
             const response = await fetch(result.url, { signal: controller.signal });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            return await uploadMediaFile(await response.blob(), "video");
+            return await withTimeout(uploadMediaFile(await response.blob(), "video"), 10000, "视频本地缓存超时");
         } catch {
             return { url: result.url, storageKey: "", bytes: 0, mimeType: result.mimeType || "video/mp4" };
         } finally {
@@ -506,6 +506,22 @@ function readApiErrorMessage(value: unknown): string {
     // error 可能是字符串或含 message 的对象
     const errorMsg = typeof payload.error === "string" ? payload.error : (payload.error as { message?: unknown })?.message;
     return readApiErrorMessage(payload.msg) || readApiErrorMessage(payload.message) || readApiErrorMessage(errorMsg) || readApiErrorMessage(payload.detail) || "";
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {
+    return new Promise<T>((resolve, reject) => {
+        const timeout = window.setTimeout(() => reject(new Error(message)), timeoutMs);
+        promise.then(
+            (value) => {
+                window.clearTimeout(timeout);
+                resolve(value);
+            },
+            (error) => {
+                window.clearTimeout(timeout);
+                reject(error);
+            },
+        );
+    });
 }
 
 function readAxiosError(error: unknown, fallback: string) {
