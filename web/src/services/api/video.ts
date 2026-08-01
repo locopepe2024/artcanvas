@@ -222,9 +222,10 @@ async function buildUniArtVideoMetadata(
 ) {
     const limits = resolveUniArtReferenceLimits(capability, config.videoReferenceMode);
     const mode = limits.mode;
-    if (mode === "text_to_video") return { ratio, ...(resolution ? { resolution } : {}) };
+    const outputMetadata = { ratio, ...(resolution ? { resolution } : {}), generate_audio: boolConfig(config.videoGenerateAudio, true) };
+    if (mode === "text_to_video") return outputMetadata;
     const hasReferences = references.length + videoReferences.length + audioReferences.length > 0;
-    if (!hasReferences) return { ratio, ...(resolution ? { resolution } : {}) };
+    if (!hasReferences) return outputMetadata;
     if (references.length > limits.maxImages) throw new Error("参考图片超过画布单次上传安全上限");
     if (videoReferences.length > limits.maxVideos) throw new Error("参考视频只能用于当前模型支持的全能参考模式");
     if (audioReferences.length > limits.maxAudios) throw new Error("参考音频只能用于当前模型支持的全能参考模式");
@@ -239,10 +240,9 @@ async function buildUniArtVideoMetadata(
         Promise.all(audioReferences.map(async (audio) => uploadCanvasVideoAsset(await referenceMediaFile(audio), options))),
     ]);
 
-    if (mode === "first_last_frames") return { ratio, ...(resolution ? { resolution } : {}), mode: "frames", first_frame_url: imageURLs[0], last_frame_url: imageURLs[1] };
+    if (mode === "first_last_frames") return { ...outputMetadata, mode: "frames", first_frame_url: imageURLs[0], last_frame_url: imageURLs[1] };
     return {
-        ratio,
-        ...(resolution ? { resolution } : {}),
+        ...outputMetadata,
         mode: "references",
         image_urls: imageURLs,
         video_urls: videoURLs,

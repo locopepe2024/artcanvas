@@ -37,16 +37,17 @@ type VideoSettingsPanelProps = {
     showTitle?: boolean;
     className?: string;
     showReferenceModes?: boolean;
+    compactLabels?: boolean;
 };
 
-export function VideoSettingsPanel({ config, model, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", showReferenceModes = true }: VideoSettingsPanelProps) {
+export function VideoSettingsPanel({ config, model, onConfigChange, theme, showTitle = true, className = "w-[320px] space-y-4 rounded-2xl px-1 py-0.5", showReferenceModes = true, compactLabels = false }: VideoSettingsPanelProps) {
     const selectedModel = model || (modelCapabilityOf(config, config.model) === "video" ? config.model : config.videoModel || config.model);
     const uniArtCapability = videoCapabilityOf(config, selectedModel);
     if (uniArtCapability) {
-        return <UniArtVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} capability={uniArtCapability} showReferenceModes={showReferenceModes} />;
+        return <UniArtVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} capability={uniArtCapability} showReferenceModes={showReferenceModes} compactLabels={compactLabels} />;
     }
     if (isSeedanceVideoConfig(config)) {
-        return <SeedanceVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} />;
+        return <SeedanceVideoSettingsPanel config={config} onConfigChange={onConfigChange} theme={theme} showTitle={showTitle} className={className} compactLabels={compactLabels} />;
     }
 
     const seconds = config.videoSeconds || "6";
@@ -72,7 +73,7 @@ export function VideoSettingsPanel({ config, model, onConfigChange, theme, showT
                             <button
                                 key={item.value}
                                 type="button"
-                                className="flex h-[68px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent text-sm transition hover:opacity-80"
+                                className={`flex h-[68px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent transition hover:opacity-80 ${compactLabels ? "text-xs" : "text-sm"}`}
                                 style={{ borderColor: size === item.value ? theme.node.text : theme.node.stroke, color: theme.node.text }}
                                 onMouseDown={(event) => event.stopPropagation()}
                                 onClick={() => onConfigChange("size", item.value)}
@@ -90,14 +91,15 @@ export function VideoSettingsPanel({ config, model, onConfigChange, theme, showT
     );
 }
 
-function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className, capability, showReferenceModes }: VideoSettingsPanelProps & { capability: UniArtVideoCapability }) {
+function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className, capability, showReferenceModes, compactLabels }: VideoSettingsPanelProps & { capability: UniArtVideoCapability }) {
     const params = resolveUniArtVideoParams(capability, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality });
+    const generateAudio = boolConfig(config.videoGenerateAudio, true);
 
     return (
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
-                {showReferenceModes ? <ReferenceModeSettings capability={capability} value={config.videoReferenceMode} theme={theme} onChange={(value) => onConfigChange("videoReferenceMode", value)} /> : null}
+                {showReferenceModes ? <ReferenceModeSettings capability={capability} value={config.videoReferenceMode} theme={theme} compactLabels={compactLabels} onChange={(value) => onConfigChange("videoReferenceMode", value)} /> : null}
                 <SettingGroup title="分辨率" color={theme.node.muted}>
                     <div className="grid grid-cols-4 gap-2.5">
                         {resolutionOptions.map((item) => (
@@ -115,7 +117,7 @@ function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, cl
                                 <button
                                     key={item.value}
                                     type="button"
-                                    className="flex min-h-[68px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 text-sm transition hover:opacity-80"
+                                    className={`flex min-h-[68px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 transition hover:opacity-80 ${compactLabels ? "text-xs" : "text-sm"}`}
                                     style={{ borderColor: params.ratio === item.value ? theme.node.text : theme.node.stroke, color: theme.node.text }}
                                     onMouseDown={(event) => event.stopPropagation()}
                                     onClick={() => onConfigChange("size", item.value)}
@@ -129,6 +131,11 @@ function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, cl
                     </div>
                 </SettingGroup>
                 <DurationTimeline values={secondOptions} value={params.seconds} theme={theme} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
+                <SettingGroup title="输出" color={theme.node.muted}>
+                    <div className="rounded-xl border px-2.5 py-1" style={{ borderColor: theme.node.stroke }}>
+                        <SwitchRow label={generateAudio ? "音频开" : "音频关"} checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
+                    </div>
+                </SettingGroup>
                 <div className="text-xs leading-5" style={{ color: theme.node.muted }}>
                     参数最终由 UniArt 根据可用候选进行校验和路由。
                 </div>
@@ -150,7 +157,7 @@ export function VideoReferenceModeSelector({ config, model, onConfigChange, them
     );
 }
 
-function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className }: VideoSettingsPanelProps) {
+function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className, compactLabels }: VideoSettingsPanelProps) {
     const resolution = normalizeSeedanceResolution(config.vquality);
     const ratio = normalizeSeedanceRatio(config.size);
     const duration = normalizeSeedanceDuration(config.videoSeconds);
@@ -176,7 +183,7 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                             <button
                                 key={item.value}
                                 type="button"
-                                className="flex h-[68px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 text-sm transition hover:opacity-80"
+                                className={`flex h-[68px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 transition hover:opacity-80 ${compactLabels ? "text-xs" : "text-sm"}`}
                                 style={{ borderColor: ratio === item.value ? theme.node.text : theme.node.stroke, color: theme.node.text }}
                                 onMouseDown={(event) => event.stopPropagation()}
                                 onClick={() => onConfigChange("size", item.value)}
@@ -191,7 +198,7 @@ function SeedanceVideoSettingsPanel({ config, onConfigChange, theme, showTitle, 
                 <DurationTimeline values={secondOptions} value={duration} theme={theme} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
                 <SettingGroup title="输出" color={theme.node.muted}>
                     <div className="grid gap-2 rounded-xl border p-2.5" style={{ borderColor: theme.node.stroke }}>
-                        <SwitchRow label="生成声音" checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
+                        <SwitchRow label={generateAudio ? "音频开" : "音频关"} checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
                         <SwitchRow label="添加水印" checked={watermark} theme={theme} onChange={(checked) => onConfigChange("videoWatermark", String(checked))} />
                     </div>
                 </SettingGroup>
@@ -208,7 +215,7 @@ const referenceModeLabels: Record<UniArtVideoReferenceMode, { title: string; ico
     omni_reference: { title: "全能参考", icon: Layers3 },
 };
 
-function ReferenceModeSettings({ capability, value, theme, onChange }: { capability: UniArtVideoCapability; value: string; theme: CanvasTheme; onChange: (value: UniArtVideoReferenceMode) => void }) {
+function ReferenceModeSettings({ capability, value, theme, compactLabels = false, onChange }: { capability: UniArtVideoCapability; value: string; theme: CanvasTheme; compactLabels?: boolean; onChange: (value: UniArtVideoReferenceMode) => void }) {
     const modes = supportedUniArtReferenceModes(capability);
     const selected = resolveUniArtReferenceMode(capability, value);
     return (
@@ -220,7 +227,7 @@ function ReferenceModeSettings({ capability, value, theme, onChange }: { capabil
                         <button
                             key={mode}
                             type="button"
-                            className="flex min-h-11 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 text-xs font-medium transition hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                            className={`flex min-h-11 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 font-medium transition hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${compactLabels ? "text-[10px]" : "text-xs"}`}
                             style={{ borderColor: selected === mode ? theme.node.text : theme.node.stroke, color: theme.node.text }}
                             aria-pressed={selected === mode}
                             onMouseDown={(event) => event.stopPropagation()}
