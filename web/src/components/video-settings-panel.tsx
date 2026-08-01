@@ -151,7 +151,7 @@ export function VideoReferenceModeSelector({ config, model, onConfigChange, them
     return (
         <ImageSettingsTheme theme={theme}>
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
-                <ReferenceModeSettings capability={capability} value={config.videoReferenceMode} theme={theme} onChange={(value) => onConfigChange("videoReferenceMode", value)} />
+                <ReferenceModeSettings capability={capability} value={config.videoReferenceMode} theme={theme} compactLabels onChange={(value) => onConfigChange("videoReferenceMode", value)} />
             </div>
         </ImageSettingsTheme>
     );
@@ -227,14 +227,14 @@ function ReferenceModeSettings({ capability, value, theme, compactLabels = false
                         <button
                             key={mode}
                             type="button"
-                            className={`flex min-h-11 cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 font-medium transition hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${compactLabels ? "text-[10px]" : "text-xs"}`}
+                            className={`flex min-h-11 min-w-0 cursor-pointer flex-col items-center justify-center gap-1 overflow-hidden rounded-xl border bg-transparent px-0.5 font-medium leading-none transition hover:opacity-80 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${compactLabels ? "text-[10px]" : "text-xs"}`}
                             style={{ borderColor: selected === mode ? theme.node.text : theme.node.stroke, color: theme.node.text }}
                             aria-pressed={selected === mode}
                             onMouseDown={(event) => event.stopPropagation()}
                             onClick={() => onChange(mode)}
                         >
                             <Icon className="size-3.5 shrink-0" />
-                            <span className="whitespace-nowrap">{referenceModeLabels[mode].title}</span>
+                            <span className="max-w-full whitespace-nowrap">{referenceModeLabels[mode].title}</span>
                         </button>
                     );
                 })}
