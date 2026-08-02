@@ -973,7 +973,8 @@ function InfiniteCanvasPage() {
             if (!node) return;
             const worldX = node.position.x + node.width / 2;
             const worldY = node.position.y + node.height / 2;
-            const k = Math.min(Math.max(Math.min((size.width * 0.6) / node.width, (size.height * 0.6) / node.height), 0.05), 1.5);
+            const fitScale = Math.min((size.width * 0.6) / node.width, (size.height * 0.6) / node.height, 1.5);
+            const k = Math.max(0.05, Math.min(viewportRef.current.k, fitScale));
             const target = { x: size.width / 2 - worldX * k, y: size.height / 2 - worldY * k, k };
             setSelectedNodeIds(new Set([nodeId]));
             setSelectedConnectionId(null);
