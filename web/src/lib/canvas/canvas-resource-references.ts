@@ -19,7 +19,9 @@ export type CanvasResourceReference = {
 
 export function buildNodeMentionReferences(node: CanvasNodeData, nodes: CanvasNodeData[], connections: CanvasConnection[], fallbackVideoReferenceMode?: CanvasNodeMetadata["videoReferenceMode"]) {
     const videoMode = node.type === CanvasNodeType.Video || node.metadata?.generationMode === "video";
-    return labelResourceNodes(getMentionResourceNodes(node.id, nodes, connections), true, videoMode, node.metadata?.videoReferenceMode || fallbackVideoReferenceMode);
+    const videoReferenceMode = node.metadata?.videoReferenceMode || fallbackVideoReferenceMode;
+    const resourceNodes = videoMode ? getVideoGenerationResourceNodes(node.id, nodes, connections, videoReferenceMode) : getMentionResourceNodes(node.id, nodes, connections);
+    return labelResourceNodes(resourceNodes, true, videoMode, videoReferenceMode);
 }
 
 export function getMentionResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
@@ -37,6 +39,19 @@ export function getGenerationResourceNodes(nodeId: string, nodes: CanvasNodeData
     const ownInputs = getContextResourceNodes(nodeId, nodes, connections);
     if (ownInputs.length) return ownInputs;
     return [];
+}
+
+export function getVideoGenerationResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], videoReferenceMode: CanvasNodeMetadata["videoReferenceMode"] = "image_reference") {
+    const connectedInputs = getGenerationResourceNodes(nodeId, nodes, connections);
+    const currentNode = nodes.find((node) => node.id === nodeId);
+    const uniqueInputs = [currentNode, ...connectedInputs].filter((node): node is CanvasNodeData => Boolean(node && isResourceNode(node))).filter((node, index, items) => items.findIndex((item) => item.id === node.id) === index);
+    const allowedKinds: CanvasResourceKind[] = videoReferenceMode === "text_to_video" ? ["text"] : videoReferenceMode === "omni_reference" ? ["text", "image", "video", "audio"] : ["text", "image"];
+    return uniqueInputs
+        .filter((node) => {
+            const kind = resourceKind(node);
+            return Boolean(kind && allowedKinds.includes(kind));
+        })
+        .sort((left, right) => allowedKinds.indexOf(resourceKind(left)!) - allowedKinds.indexOf(resourceKind(right)!));
 }
 
 function getContextResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {

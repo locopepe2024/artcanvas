@@ -710,10 +710,10 @@ function InfiniteCanvasPage() {
         const map = new Map<string, NodeGenerationInput[]>();
         nodes.forEach((node) => {
             if (node.type !== CanvasNodeType.Config) return;
-            map.set(node.id, buildNodeGenerationInputs(node.id, nodes, connections));
+            map.set(node.id, buildNodeGenerationInputs(node.id, nodes, connections, node.metadata?.generationMode === "video" ? node.metadata?.videoReferenceMode || effectiveConfig.videoReferenceMode : undefined));
         });
         return map;
-    }, [connections, nodes]);
+    }, [connections, effectiveConfig.videoReferenceMode, nodes]);
     const mentionReferencesByNodeId = useMemo(() => {
         const map = new Map<string, ReturnType<typeof buildNodeMentionReferences>>();
         nodes.forEach((node) => map.set(node.id, buildNodeMentionReferences(node, nodes, connections, effectiveConfig.videoReferenceMode)));
@@ -2149,7 +2149,14 @@ function InfiniteCanvasPage() {
             const sourceTextContent = sourceNode?.type === CanvasNodeType.Text ? sourceNode.metadata?.content?.trim() || "" : "";
             const editingTextNode = mode === "text" && Boolean(sourceTextContent);
             const generationContext = await hydrateNodeGenerationContext(
-                buildNodeGenerationContext(nodeId, nodesRef.current, connectionsRef.current, editingTextNode ? `请根据要求修改以下文本。\n\n原文：\n${sourceTextContent}\n\n修改要求：\n${prompt}` : prompt, mode === "video"),
+                buildNodeGenerationContext(
+                    nodeId,
+                    nodesRef.current,
+                    connectionsRef.current,
+                    editingTextNode ? `请根据要求修改以下文本。\n\n原文：\n${sourceTextContent}\n\n修改要求：\n${prompt}` : prompt,
+                    mode === "video",
+                    generationConfig.videoReferenceMode,
+                ),
             );
             const effectivePrompt = generationContext.prompt.trim();
             if (runController.signal.aborted) {
@@ -2517,7 +2524,18 @@ function InfiniteCanvasPage() {
             }
 
             const retryVideoMode = node.type === CanvasNodeType.Video || sourceNode.metadata?.generationMode === "video";
-            const context = hasSavedImageMetadata ? null : await hydrateNodeGenerationContext(buildNodeGenerationContext(sourceNode.id, nodesRef.current, connectionsRef.current, sourceNode.metadata?.prompt || node.metadata?.prompt || "", retryVideoMode));
+            const context = hasSavedImageMetadata
+                ? null
+                : await hydrateNodeGenerationContext(
+                      buildNodeGenerationContext(
+                          sourceNode.id,
+                          nodesRef.current,
+                          connectionsRef.current,
+                          sourceNode.metadata?.prompt || node.metadata?.prompt || "",
+                          retryVideoMode,
+                          retryVideoMode ? generationConfig.videoReferenceMode : undefined,
+                      ),
+                  );
             const prompt = (savedImageMetadata?.prompt || context?.prompt || "").trim();
             if (!prompt) {
                 message.warning("找不到提示词，无法重试");

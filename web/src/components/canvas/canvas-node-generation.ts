@@ -3,8 +3,8 @@ import { imageReferenceLabel } from "@/lib/image-reference-prompt";
 import { seedanceReferenceLabel } from "@/lib/seedance-video";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
-import { CanvasNodeType, type CanvasConnection, type CanvasNodeData } from "@/types/canvas";
-import { getGenerationResourceNodes } from "@/lib/canvas/canvas-resource-references";
+import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
+import { getGenerationResourceNodes, getVideoGenerationResourceNodes } from "@/lib/canvas/canvas-resource-references";
 
 export type NodeGenerationContext = {
     prompt: string;
@@ -27,8 +27,8 @@ export type NodeGenerationInput = {
     audio?: ReferenceAudio;
 };
 
-export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], prompt: string, videoMode = false): NodeGenerationContext {
-    const inputs = buildNodeGenerationInputs(nodeId, nodes, connections);
+export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], prompt: string, videoMode = false, videoReferenceMode?: CanvasNodeMetadata["videoReferenceMode"]): NodeGenerationContext {
+    const inputs = buildNodeGenerationInputs(nodeId, nodes, connections, videoMode ? videoReferenceMode : undefined);
     const sourceNode = nodes.find((node) => node.id === nodeId);
     if (sourceNode?.type === CanvasNodeType.Config && Boolean(sourceNode.metadata?.composerContent?.trim())) {
         return buildComposerGenerationContext(inputs, prompt, videoMode);
@@ -135,8 +135,9 @@ function buildComposerGenerationContext(inputs: NodeGenerationInput[], prompt: s
     };
 }
 
-export function buildNodeGenerationInputs(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]): NodeGenerationInput[] {
-    return getGenerationResourceNodes(nodeId, nodes, connections).flatMap((node): NodeGenerationInput[] => {
+export function buildNodeGenerationInputs(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], videoReferenceMode?: CanvasNodeMetadata["videoReferenceMode"]): NodeGenerationInput[] {
+    const resourceNodes = videoReferenceMode ? getVideoGenerationResourceNodes(nodeId, nodes, connections, videoReferenceMode) : getGenerationResourceNodes(nodeId, nodes, connections);
+    return resourceNodes.flatMap((node): NodeGenerationInput[] => {
         const image = readReferenceImage(node);
         if (image) return [{ nodeId: node.id, type: "image" as const, title: node.title, image }];
         const video = readReferenceVideo(node);
