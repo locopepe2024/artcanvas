@@ -43,6 +43,7 @@ import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, clampCanvasScale } from "@/lib/canvas/canvas-viewport";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
 import { persistedCanvasVideoTask, recoverableCanvasVideoTask } from "@/lib/canvas/canvas-video-task";
@@ -368,7 +369,9 @@ function InfiniteCanvasPage() {
             setActiveChatId(project.activeChatId || null);
             setBackgroundMode(project.backgroundMode);
             setShowImageInfo(project.showImageInfo || false);
-            setViewport(project.viewport);
+            const restoredViewport = { ...project.viewport, k: clampCanvasScale(project.viewport.k) };
+            viewportRef.current = restoredViewport;
+            setViewport(restoredViewport);
             historyRef.current = { past: [], future: [] };
             if (historyCommitTimerRef.current) {
                 clearTimeout(historyCommitTimerRef.current);
@@ -575,7 +578,7 @@ function InfiniteCanvasPage() {
     const getConnectionDropTarget = useCallback(
         (clientX: number, clientY: number, current: ConnectionHandle): ConnectionDropTarget => {
             const world = screenToCanvas(clientX, clientY);
-            const scale = Math.max(viewportRef.current.k, 0.05);
+            const scale = Math.max(viewportRef.current.k, CANVAS_MIN_SCALE);
             const padding = CONNECTION_NODE_HIT_PADDING / scale;
             const handleRadius = CONNECTION_HANDLE_HIT_RADIUS / scale;
             let isNearNode = false;
@@ -963,7 +966,9 @@ function InfiniteCanvasPage() {
     }, [getCanvasCenter]);
 
     const resetViewport = useCallback(() => {
-        setViewport({ x: size.width / 2, y: size.height / 2, k: 1 });
+        const next = { x: size.width / 2, y: size.height / 2, k: 1 };
+        viewportRef.current = next;
+        setViewport(next);
         setContextMenu(null);
     }, [size.height, size.width]);
 
@@ -973,8 +978,8 @@ function InfiniteCanvasPage() {
             if (!node) return;
             const worldX = node.position.x + node.width / 2;
             const worldY = node.position.y + node.height / 2;
-            const fitScale = Math.min((size.width * 0.6) / node.width, (size.height * 0.6) / node.height, 1.5);
-            const k = Math.max(0.05, Math.min(viewportRef.current.k, fitScale));
+            const fitScale = Math.min((size.width * 0.6) / node.width, (size.height * 0.6) / node.height, CANVAS_MAX_SCALE);
+            const k = Math.max(CANVAS_MIN_SCALE, Math.min(viewportRef.current.k, fitScale));
             const target = { x: size.width / 2 - worldX * k, y: size.height / 2 - worldY * k, k };
             setSelectedNodeIds(new Set([nodeId]));
             setSelectedConnectionId(null);
@@ -989,7 +994,9 @@ function InfiniteCanvasPage() {
                 if (startTime === null) startTime = now;
                 const progress = Math.min((now - startTime) / duration, 1);
                 const t = easeOutCubic(progress);
-                setViewport({ x: start.x + (target.x - start.x) * t, y: start.y + (target.y - start.y) * t, k: start.k + (target.k - start.k) * t });
+                const next = { x: start.x + (target.x - start.x) * t, y: start.y + (target.y - start.y) * t, k: start.k + (target.k - start.k) * t };
+                viewportRef.current = next;
+                setViewport(next);
                 focusAnimRef.current = progress < 1 ? requestAnimationFrame(step) : null;
             };
             focusAnimRef.current = requestAnimationFrame(step);
@@ -1001,12 +1008,15 @@ function InfiniteCanvasPage() {
 
     const setZoomScale = useCallback(
         (scale: number) => {
-            const nextScale = Math.min(Math.max(scale, 0.05), 5);
-            setViewport((prev) => ({
+            const nextScale = clampCanvasScale(scale);
+            const prev = viewportRef.current;
+            const next = {
                 x: size.width / 2 - ((size.width / 2 - prev.x) / prev.k) * nextScale,
                 y: size.height / 2 - ((size.height / 2 - prev.y) / prev.k) * nextScale,
                 k: nextScale,
-            }));
+            };
+            viewportRef.current = next;
+            setViewport(next);
             setContextMenu(null);
         },
         [size.height, size.width],
@@ -2860,6 +2870,7 @@ function InfiniteCanvasPage() {
                     viewport={viewport}
                     backgroundMode={backgroundMode}
                     onViewportChange={(next) => {
+                        viewportRef.current = next;
                         setViewport(next);
                         setContextMenu(null);
                     }}

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
+import { CANVAS_WHEEL_ZOOM_FACTOR, clampCanvasScale } from "@/lib/canvas/canvas-viewport";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { ViewportTransform } from "@/types/canvas";
 
@@ -67,8 +68,8 @@ export function InfiniteCanvas({ containerRef, viewport, backgroundMode = "lines
         if (target?.closest("[data-canvas-no-zoom],.ant-modal,.ant-popover,.ant-dropdown,.ant-select-dropdown,.ant-picker-dropdown")) return;
 
         const delta = -event.deltaY;
-        const factor = Math.pow(1.1, delta / 100);
-        const newScale = Math.min(Math.max(viewport.k * factor, 0.05), 5);
+        const factor = Math.pow(CANVAS_WHEEL_ZOOM_FACTOR, delta / 100);
+        const newScale = clampCanvasScale(viewport.k * factor);
         const rect = containerRef.current?.getBoundingClientRect();
         if (!rect) return;
 
