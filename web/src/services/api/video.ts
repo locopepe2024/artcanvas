@@ -335,7 +335,7 @@ function resolveStoredVideoResultUrl(config: AiConfig, resultUrl: string) {
 async function resolveOpenAIVideoResult(config: AiConfig, resultUrl: string, requiresAuth: boolean | undefined, contentType = "video/mp4", options?: RequestOptions): Promise<VideoGenerationResult> {
     const resolvedUrl = resolveStoredVideoResultUrl(config, resultUrl);
     if (!(requiresAuth ?? isAuthenticatedVideoContentUrl(config, resolvedUrl))) return { url: resolvedUrl, mimeType: contentType || "video/mp4" };
-    const content = await axios.get<Blob>(resolvedUrl, { headers: aiHeaders(config), responseType: "blob", signal: options?.signal, timeout: 20000 });
+    const content = await axios.get<Blob>(resolvedUrl, { headers: aiHeaders(config), responseType: "blob", signal: options?.signal, timeout: 60000 });
     await assertVideoBlob(content.data);
     return { blob: content.data };
 }
