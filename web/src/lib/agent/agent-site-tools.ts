@@ -7,7 +7,7 @@ import { videoResolutionOptions, videoSecondOptions, videoSizeOptions } from "@/
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAssetStore } from "@/stores/use-asset-store";
-import { modelOptionLabel, modelOptionName, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore } from "@/stores/use-config-store";
+import { modelOptionLabel, modelOptionName, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, type AiConfig } from "@/stores/use-config-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 
 // 在网页端执行 Agent 的「站点级」工具（画布列表、工作台生成、提示词搜索、资产增删查等）。

@@ -48,6 +48,7 @@ export type AiConfig = {
     videoGenerateAudio: string;
     videoWatermark: string;
     videoReferenceMode: VideoReferenceMode;
+    videoFaceMode?: string;
     systemPrompt: string;
     reasoningEffort: ReasoningEffort;
     models: string[];
@@ -107,6 +108,7 @@ export const defaultConfig: AiConfig = {
     videoGenerateAudio: "true",
     videoWatermark: "false",
     videoReferenceMode: "image_reference",
+    videoFaceMode: "false",
     systemPrompt: "",
     reasoningEffort: "auto",
     models: ["default::gpt-image-2", "default::grok-imagine-video", "default::gpt-5.5", "default::gpt-4o-mini-tts"],
@@ -257,6 +259,7 @@ export const useConfigStore = create<ConfigStore>()(
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
                         videoReferenceMode: config.videoReferenceMode || "image_reference",
+                        videoFaceMode: config.videoFaceMode || "false",
                         canvasImageCount: config.canvasImageCount || "3",
                     },
                 };

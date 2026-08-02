@@ -34,6 +34,7 @@ type CanvasNodeHoverToolbarProps = {
     onViewImage: (node: CanvasNodeData) => void;
     onReversePrompt: (node: CanvasNodeData) => void;
     onRetry: (node: CanvasNodeData) => void;
+    onRecoverVideoTask: (node: CanvasNodeData) => void;
     onToggleFreeResize: (node: CanvasNodeData) => void;
     onDelete: (node: CanvasNodeData) => void;
     extraTools?: CanvasNodeToolbarItem[];
@@ -72,6 +73,7 @@ export function CanvasNodeHoverToolbar({
     onViewImage,
     onReversePrompt,
     onRetry,
+    onRecoverVideoTask,
     onToggleFreeResize,
     onDelete,
     extraTools = [],
@@ -116,6 +118,7 @@ export function CanvasNodeHoverToolbar({
     const isConfig = node.type === CanvasNodeType.Config;
     const canOpenDialog = isText || hasImage || isVideo;
     const canRetry = node.metadata?.status === "error";
+    const canRecoverVideoTask = isVideo && !hasVideo && node.metadata?.status !== "success";
     const quickImageToolIdSet = new Set(quickImageToolIds);
     const copyImagePrompt = (target: CanvasNodeData) => {
         const prompt = target.metadata?.prompt?.trim();
@@ -139,6 +142,7 @@ export function CanvasNodeHoverToolbar({
         { id: "delete", title: "移除节点", label: "删除", icon: <Trash2 className="size-4" />, onClick: () => onDelete(node), danger: true },
     ];
     const nodeToolbarTools: ToolbarTool[] = [
+        ...(canRecoverVideoTask ? [{ id: "recoverVideoTask", title: "按任务 ID 恢复视频", label: "恢复", icon: <RefreshCw className="size-4" />, onClick: () => onRecoverVideoTask(node) }] : []),
         ...(canRetry ? [{ id: "retry", title: "重新生成", label: "重试", icon: <RefreshCw className="size-4" />, onClick: () => onRetry(node) }] : []),
         ...(hasImage || hasVideo || isText ? [{ id: "saveAsset", title: "加入我的资产", label: "存资产", icon: <FolderPlus className="size-4" />, onClick: () => onSaveAsset(node) }] : []),
         ...(hasImage || hasVideo || hasAudio ? [{ id: "download", title: hasAudio ? "下载音频" : hasVideo ? "下载视频" : "下载图片", label: "下载", icon: <Download className="size-4" />, onClick: () => onDownload(node) }] : []),

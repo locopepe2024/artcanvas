@@ -32,7 +32,7 @@ export const videoSecondOptions = secondOptions.map((value) => String(value));
 type VideoSettingsPanelProps = {
     config: AiConfig;
     model?: string;
-    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoReferenceMode", value: string) => void;
+    onConfigChange: (key: "vquality" | "size" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoReferenceMode" | "videoFaceMode", value: string) => void;
     theme: CanvasTheme;
     showTitle?: boolean;
     className?: string;
@@ -94,6 +94,7 @@ export function VideoSettingsPanel({ config, model, onConfigChange, theme, showT
 function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className, capability, showReferenceModes, compactLabels }: VideoSettingsPanelProps & { capability: UniArtVideoCapability }) {
     const params = resolveUniArtVideoParams(capability, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality });
     const generateAudio = boolConfig(config.videoGenerateAudio, true);
+    const faceMode = boolConfig(config.videoFaceMode, false);
 
     return (
         <ImageSettingsTheme theme={theme}>
@@ -135,6 +136,12 @@ function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, cl
                     <div className="rounded-xl border px-2.5 py-1" style={{ borderColor: theme.node.stroke }}>
                         <SwitchRow label={generateAudio ? "音频开" : "音频关"} checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
                     </div>
+                </SettingGroup>
+                <SettingGroup title="素材处理" color={theme.node.muted}>
+                    <div className="rounded-xl border px-2.5 py-1" style={{ borderColor: theme.node.stroke }}>
+                        <SwitchRow label="人脸" checked={faceMode} theme={theme} onChange={(checked) => onConfigChange("videoFaceMode", String(checked))} />
+                    </div>
+                    <div className="text-[11px] leading-4" style={{ color: theme.node.muted }}>开启后由 UniArt 在提交前完成素材认证；关闭时直接使用画布素材地址。</div>
                 </SettingGroup>
                 <div className="text-xs leading-5" style={{ color: theme.node.muted }}>
                     参数最终由 UniArt 根据可用候选进行校验和路由。
@@ -393,7 +400,7 @@ function SwitchRow({ label, checked, theme, onChange }: { label: string; checked
                 {label}
             </span>
             <span onMouseDown={(event) => event.stopPropagation()}>
-                <Switch size="small" checked={checked} onChange={onChange} />
+                <Switch size="small" checked={checked} aria-label={label} onChange={onChange} />
             </span>
         </div>
     );

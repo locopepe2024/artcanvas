@@ -62,7 +62,7 @@ type GenerationLog = {
     error?: string;
 };
 
-type GenerationLogConfig = Pick<AiConfig, "model" | "videoModel" | "size" | "vquality" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoReferenceMode">;
+type GenerationLogConfig = Pick<AiConfig, "model" | "videoModel" | "size" | "vquality" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoReferenceMode" | "videoFaceMode">;
 
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 
@@ -257,7 +257,7 @@ export default function VideoPage() {
         setStartedAt(batchStartedAt);
         try {
             const task = await createVideoGenerationTask(snapshot.config, snapshot.text, snapshot.references, snapshot.videoReferences, snapshot.audioReferences);
-            const log = buildLog({ prompt: snapshot.text, model, config: snapshot.config, references: snapshot.references, videoReferences: snapshot.videoReferences, audioReferences: snapshot.audioReferences, durationMs: 0, status: "生成中", task });
+            const log = buildLog({ prompt: snapshot.text, model: snapshot.model, config: snapshot.config, references: snapshot.references, videoReferences: snapshot.videoReferences, audioReferences: snapshot.audioReferences, durationMs: 0, status: "生成中", task });
             await saveLog(log, false);
             void pollGenerationLog(log, snapshot.config, agentTaskId);
         } catch (error) {
@@ -267,7 +267,7 @@ export default function VideoPage() {
             await saveLog(
                 buildLog({
                     prompt: snapshot.text,
-                    model,
+                    model: snapshot.model,
                     config: snapshot.config,
                     references: snapshot.references,
                     videoReferences: snapshot.videoReferences,
@@ -306,21 +306,37 @@ export default function VideoPage() {
 
     const buildRequestSnapshot = () => {
         const text = prompt.trim();
-        if (submissionError) {
-            message.error(submissionError);
+        // Read the store at click time. A settings switch can be changed just
+        // before submission, while this render's effectiveConfig closure still
+        // contains the previous value. Face mode must never be lost at that
+        // boundary because it controls provider-side asset preflight.
+        const latestConfig = { ...useConfigStore.getState().config, channelMode: "local" as const };
+        const latestModel = latestConfig.videoModel || latestConfig.model;
+        const latestCapability = videoCapabilityOf(latestConfig, latestModel);
+        const latestSeedance = isSeedanceVideoConfig({ ...latestConfig, model: latestModel });
+        const latestLimits = latestCapability
+            ? resolveUniArtReferenceLimits(latestCapability, latestConfig.videoReferenceMode)
+            : { mode: "image_reference" as const, maxImages: latestSeedance ? SEEDANCE_REFERENCE_LIMITS.images : 0, maxVideos: latestSeedance ? SEEDANCE_REFERENCE_LIMITS.videos : 0, maxAudios: latestSeedance ? SEEDANCE_REFERENCE_LIMITS.audios : 0 };
+        const latestSubmissionError = latestCapability
+            ? uniArtVideoSubmissionError(latestLimits.mode, text, { images: references.length, videos: videoReferences.length, audios: audioReferences.length })
+            : text
+              ? null
+              : "请输入视频提示词";
+        if (latestSubmissionError) {
+            message.error(latestSubmissionError);
             return null;
         }
-        if (!isAiConfigReady(effectiveConfig, model)) {
+        if (!isAiConfigReady(latestConfig, latestModel)) {
             message.warning("请先完成配置");
             openConfigDialog(true);
             return null;
         }
-        const videoReferenceError = seedance ? seedanceVideoReferenceError(videoReferences) : null;
+        const videoReferenceError = latestSeedance ? seedanceVideoReferenceError(videoReferences) : null;
         if (videoReferenceError) {
             message.error(`${videoReferenceError}。${seedanceVideoReferenceHint}`);
             return null;
         }
-        return { text, config: buildVideoConfig(effectiveConfig, model), references: [...references], videoReferences: [...videoReferences], audioReferences: [...audioReferences] };
+        return { text, model: latestModel, config: buildVideoConfig(latestConfig, latestModel), references: [...references], videoReferences: [...videoReferences], audioReferences: [...audioReferences] };
     };
 
     const retryResult = () => {
@@ -467,6 +483,7 @@ export default function VideoPage() {
         if (log.config.videoGenerateAudio) updateConfig("videoGenerateAudio", log.config.videoGenerateAudio);
         if (log.config.videoWatermark) updateConfig("videoWatermark", log.config.videoWatermark);
         if (log.config.videoReferenceMode) updateConfig("videoReferenceMode", log.config.videoReferenceMode);
+        if (log.config.videoFaceMode) updateConfig("videoFaceMode", log.config.videoFaceMode);
         setResults(log.status === "生成中" ? [{ id: log.id, status: "pending" }] : log.video ? [{ id: log.video.id, status: "success", video: log.video }] : [{ id: log.id, status: "failed", error: log.error || "生成失败" }]);
     };
 
@@ -1004,6 +1021,7 @@ function normalizeLogConfig(log: Partial<GenerationLog>): GenerationLogConfig {
         videoGenerateAudio: log.config?.videoGenerateAudio || "true",
         videoWatermark: log.config?.videoWatermark || "false",
         videoReferenceMode: log.config?.videoReferenceMode || "image_reference",
+        videoFaceMode: log.config?.videoFaceMode || "false",
     };
 }
 
@@ -1041,6 +1059,7 @@ function buildLog({
         videoGenerateAudio: config.videoGenerateAudio,
         videoWatermark: config.videoWatermark,
         videoReferenceMode: config.videoReferenceMode,
+        videoFaceMode: config.videoFaceMode,
     };
     return {
         id: nanoid(),
