@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, ClipboardPaste, Download, FolderPlus, History, LoaderCircle, Music2, Plus, SlidersHorizontal, Sparkles, Trash2, Upload, VideoIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, ClipboardPaste, Download, FolderPlus, History, LoaderCircle, Music2, Plus, RefreshCw, SlidersHorizontal, Sparkles, Trash2, Upload, VideoIcon } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { App, Button, Checkbox, Drawer, Empty, Input, Modal, Tag, Typography } from "antd";
 import localforage from "localforage";
@@ -80,6 +80,7 @@ export default function VideoPage() {
     const fileInputTargetRef = useRef<"all" | "image" | "video" | "audio">("all");
     const dragDepthRef = useRef(0);
     const activeLogIdsRef = useRef<Set<string>>(new Set());
+    const recoverableLogsRef = useRef<GenerationLog[]>([]);
     const config = useConfigStore((state) => state.config);
     const effectiveConfig = useEffectiveConfig();
     const updateConfig = useConfigStore((state) => state.updateConfig);
@@ -103,6 +104,8 @@ export default function VideoPage() {
     const [selectedLogIds, setSelectedLogIds] = useState<string[]>([]);
     const [previewLog, setPreviewLog] = useState<GenerationLog | null>(null);
     const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+    const [recoverTaskOpen, setRecoverTaskOpen] = useState(false);
+    const [recoverTaskId, setRecoverTaskId] = useState("");
     const [referenceDragTarget, setReferenceDragTarget] = useState<"image" | "video" | "audio" | null>(null);
     const [autoRunToken, setAutoRunToken] = useState(0);
     const videoCommand = useWorkbenchAgentStore((state) => state.videoCommand);
@@ -150,6 +153,12 @@ export default function VideoPage() {
     useEffect(() => {
         void refreshLogs();
     }, []);
+
+    useEffect(() => {
+        resumePendingLogs([...recoverableLogsRef.current, ...logs]);
+        // 配置持久化晚于页面记录恢复时，重新尝试尚未启动的远程任务。
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [effectiveConfig]);
 
     const openReferenceUpload = (target: "image" | "video" | "audio") => {
         fileInputTargetRef.current = target;
@@ -258,8 +267,11 @@ export default function VideoPage() {
         try {
             const task = await createVideoGenerationTask(snapshot.config, snapshot.text, snapshot.references, snapshot.videoReferences, snapshot.audioReferences);
             const log = buildLog({ prompt: snapshot.text, model: snapshot.model, config: snapshot.config, references: snapshot.references, videoReferences: snapshot.videoReferences, audioReferences: snapshot.audioReferences, durationMs: 0, status: "生成中", task });
-            await saveLog(log, false);
+            await logStore.setItem(log.id, serializeLog(log));
+            recoverableLogsRef.current = [log, ...recoverableLogsRef.current.filter((item) => item.id !== log.id)];
+            setLogs((value) => [log, ...value.filter((item) => item.id !== log.id)].sort((a, b) => b.createdAt - a.createdAt));
             void pollGenerationLog(log, snapshot.config, agentTaskId);
+            void refreshLogs(false);
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "生成失败";
             setResults([{ id: nanoid(), status: "failed", error: errorMessage }]);
@@ -408,12 +420,16 @@ export default function VideoPage() {
 
     const saveLog = async (log: GenerationLog, resumePending = true) => {
         await logStore.setItem(log.id, serializeLog(log));
+        recoverableLogsRef.current = [log, ...recoverableLogsRef.current.filter((item) => item.id !== log.id)];
         setPreviewLog((current) => (current?.id === log.id ? log : current));
         await refreshLogs(resumePending);
     };
 
     const refreshLogs = async (resumePending = true) => {
-        const nextLogs = await readStoredLogs();
+        const nextLogs = await readStoredLogs((rawLogs) => {
+            recoverableLogsRef.current = rawLogs;
+            if (resumePending) resumePendingLogs(rawLogs);
+        });
         setLogs(nextLogs);
         if (resumePending) resumePendingLogs(nextLogs);
         return nextLogs;
@@ -428,11 +444,13 @@ export default function VideoPage() {
     const pollGenerationLog = async (log: GenerationLog, configOverride?: AiConfig, agentTaskId?: string) => {
         if (!log.task || activeLogIdsRef.current.has(log.id)) return;
         const task = log.task;
+        const latestConfig = { ...useConfigStore.getState().config, channelMode: "local" as const };
+        const taskConfig = buildVideoConfig({ ...latestConfig, ...log.config }, task.model || log.model);
+        if (!isAiConfigReady(configOverride || taskConfig, (configOverride || taskConfig).model)) return;
         activeLogIdsRef.current.add(log.id);
         setRunning(true);
         setStartedAt((value) => value || performance.now());
         setResults((value) => (value.length ? value : [{ id: log.id, status: "pending" }]));
-        const taskConfig = buildVideoConfig({ ...effectiveConfig, ...log.config }, task.model || log.model);
         try {
             if (isRecoverablePollingFailure(log)) {
                 log = { ...log, status: "生成中", error: undefined };
@@ -467,6 +485,32 @@ export default function VideoPage() {
                 setStartedAt(0);
             }
         }
+    };
+
+    const recoverGenerationTask = async () => {
+        const taskId = recoverTaskId.trim();
+        if (!/^task_[A-Za-z0-9]+$/.test(taskId)) {
+            message.warning("请输入有效的 task_ 任务 ID");
+            return;
+        }
+        const latestConfig = { ...useConfigStore.getState().config, channelMode: "local" as const };
+        const selectedModel = latestConfig.videoModel || latestConfig.model;
+        const taskConfig = buildVideoConfig(latestConfig, selectedModel);
+        if (!isAiConfigReady(taskConfig, selectedModel)) {
+            message.warning("请先完成当前视频模型的 API 配置");
+            openConfigDialog(true);
+            return;
+        }
+        const task: VideoGenerationTask = { id: taskId, provider: "openai", model: selectedModel };
+        const log = buildLog({ prompt: prompt.trim(), model: selectedModel, config: taskConfig, references: [], videoReferences: [], audioReferences: [], durationMs: 0, status: "生成中", task });
+        await logStore.setItem(log.id, serializeLog(log));
+        recoverableLogsRef.current = [log, ...recoverableLogsRef.current.filter((item) => item.id !== log.id)];
+        setLogs((value) => [log, ...value.filter((item) => item.id !== log.id)].sort((a, b) => b.createdAt - a.createdAt));
+        setPreviewLog(log);
+        setResults([{ id: log.id, status: "pending" }]);
+        setRecoverTaskOpen(false);
+        setRecoverTaskId("");
+        void pollGenerationLog(log, taskConfig);
     };
 
     const previewGenerationLog = (log: GenerationLog) => {
@@ -506,13 +550,18 @@ export default function VideoPage() {
                     <div className="thin-scrollbar flex flex-col rounded-lg border border-stone-200 bg-card p-4 shadow-sm dark:border-stone-800 lg:min-h-0 lg:overflow-y-auto">
                         <div className="flex items-start justify-between gap-3">
                             <h1 className="text-2xl font-semibold text-stone-950 dark:text-stone-100">视频创作台</h1>
-                            <div className="flex shrink-0 gap-2 lg:hidden">
-                                <Button icon={<History className="size-4" />} onClick={() => setLogsOpen(true)}>
-                                    记录
+                            <div className="flex shrink-0 gap-2">
+                                <Button size="small" icon={<RefreshCw className="size-3.5" />} onClick={() => setRecoverTaskOpen(true)}>
+                                    恢复任务
                                 </Button>
-                                <Button icon={<SlidersHorizontal className="size-4" />} onClick={() => setSettingsOpen(true)}>
-                                    参数
-                                </Button>
+                                <div className="flex gap-2 lg:hidden">
+                                    <Button icon={<History className="size-4" />} onClick={() => setLogsOpen(true)}>
+                                        记录
+                                    </Button>
+                                    <Button icon={<SlidersHorizontal className="size-4" />} onClick={() => setSettingsOpen(true)}>
+                                        参数
+                                    </Button>
+                                </div>
                             </div>
                         </div>
 
@@ -742,6 +791,21 @@ export default function VideoPage() {
             </Drawer>
             <PromptSelectDialog open={promptDialogOpen} onOpenChange={setPromptDialogOpen} onSelect={setPrompt} />
             <AssetPickerModal open={assetPickerOpen} defaultTab="my-assets" onInsert={(payload) => void insertPickedAsset(payload)} onClose={() => setAssetPickerOpen(false)} />
+            <Modal
+                title="恢复视频任务"
+                open={recoverTaskOpen}
+                centered
+                okText="恢复"
+                cancelText="取消"
+                onOk={() => void recoverGenerationTask()}
+                onCancel={() => {
+                    setRecoverTaskOpen(false);
+                    setRecoverTaskId("");
+                }}
+            >
+                <p className="mb-3 text-sm text-stone-500 dark:text-stone-400">输入 UniArt 返回的 task_ 任务 ID，将查询并保存已有视频，不会重新生成或重复扣费。</p>
+                <Input value={recoverTaskId} placeholder="task_xxxxxxxxx" autoFocus onChange={(event) => setRecoverTaskId(event.target.value)} onPressEnter={() => void recoverGenerationTask()} />
+            </Modal>
             <Modal title="删除生成记录" open={deleteConfirmOpen} onCancel={() => setDeleteConfirmOpen(false)} onOk={deleteSelectedLogs} okText="删除" okButtonProps={{ danger: true }} cancelText="取消">
                 确定删除选中的 {selectedLogIds.length} 条生成记录吗？
             </Modal>
@@ -903,37 +967,39 @@ function LogCard({ log, selected, active, onSelectedChange, onClick }: { log: Ge
     );
 }
 
-async function readStoredLogs() {
+async function readStoredLogs(onRawLogs?: (logs: GenerationLog[]) => void) {
     if (typeof window === "undefined") return [];
     try {
         const logs: GenerationLog[] = [];
         await logStore.iterate<GenerationLog, void>((value) => {
             logs.push(value);
         });
-        return (await Promise.all(logs.map(normalizeLog))).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        const sortedLogs = logs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        onRawLogs?.(sortedLogs);
+        return (await Promise.all(sortedLogs.map(normalizeLog))).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
     } catch {
         return [];
     }
 }
 
 async function normalizeLog(log: Partial<GenerationLog>): Promise<GenerationLog> {
-    const video = log.video?.storageKey ? { ...log.video, url: await resolveMediaUrl(log.video.storageKey, log.video.url) } : log.video;
+    const video = log.video?.storageKey ? { ...log.video, url: await resolveMediaUrl(log.video.storageKey, log.video.url).catch(() => log.video?.url || "") } : log.video;
     const videoReferences = await Promise.all(
         (log.videoReferences || []).map(async (item) => ({
             ...item,
-            url: item.storageKey ? await resolveMediaUrl(item.storageKey, item.url) : item.url,
+            url: item.storageKey ? await resolveMediaUrl(item.storageKey, item.url).catch(() => item.url) : item.url,
         })),
     );
     const audioReferences = await Promise.all(
         (log.audioReferences || []).map(async (item) => ({
             ...item,
-            url: item.storageKey ? await resolveMediaUrl(item.storageKey, item.url) : item.url,
+            url: item.storageKey ? await resolveMediaUrl(item.storageKey, item.url).catch(() => item.url) : item.url,
         })),
     );
     const references = await Promise.all(
         (log.references || []).map(async (item) => ({
             ...item,
-            dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl),
+            dataUrl: await resolveImageUrl(item.storageKey, item.dataUrl).catch(() => item.dataUrl),
         })),
     );
     const config = normalizeLogConfig(log);
