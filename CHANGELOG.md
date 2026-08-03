@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.14.0 - 2026-08-03
+
 + [合并] 保留 ArtCanvas 视频能力与任务恢复实现，并合并上游 Infinite Canvas v0.13.0 的 Canvas Agent 重构、权限、任务进度、诊断日志和节点缩放稳定性修复。
 + [调整] 开源仓库身份统一为 `locopepe2024/artcanvas`，补充上游归属、贡献指南、行为准则、Issue/PR 模板和持续集成。
 
