@@ -1,4 +1,4 @@
-import type { CanvasVideoTask } from "@/lib/canvas/canvas-video-task";
+import type { CanvasVideoResult, CanvasVideoTask } from "@/lib/canvas/canvas-video-task";
 
 export type Position = {
     x: number;
@@ -49,6 +49,7 @@ export type CanvasNodeMetadata = {
     videoReferenceMode?: "text_to_video" | "image_to_video" | "image_reference" | "first_last_frames" | "omni_reference";
     faceMode?: string;
     videoTask?: CanvasVideoTask;
+    videoResult?: CanvasVideoResult;
     audioVoice?: string;
     audioFormat?: string;
     audioSpeed?: string;

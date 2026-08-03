@@ -457,7 +457,7 @@ export default function VideoPage() {
                 await saveLog(log, false);
             }
             const result = await waitForVideoGenerationTask(configOverride || taskConfig, task);
-            const stored = await storeGeneratedVideo(result);
+            const stored = await storeGeneratedVideo(result, configOverride || taskConfig);
             const nextVideo: GeneratedVideo = {
                 id: nanoid(),
                 url: stored.url,

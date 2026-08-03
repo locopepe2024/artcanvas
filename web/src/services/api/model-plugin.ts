@@ -37,7 +37,14 @@ function pluginHeaders(extra?: Record<string, string>, hasJsonBody = false): Rec
 }
 
 function pluginUrl(config: AiConfig, path: string) {
-    if (/^https?:/i.test(path)) return path;
+    if (/^https?:/i.test(path)) {
+        const baseUrl = config.baseUrl.trim().replace(/\/+$/, "");
+        const duplicatedV1Prefix = `${baseUrl}/v1`;
+        if (baseUrl.toLowerCase().endsWith("/v1") && path.toLowerCase().startsWith(`${duplicatedV1Prefix.toLowerCase()}/`)) {
+            return `${baseUrl}${path.slice(duplicatedV1Prefix.length)}`;
+        }
+        return path;
+    }
     return buildApiUrl(config.baseUrl, path.startsWith("/") ? path : `/${path}`);
 }
 
