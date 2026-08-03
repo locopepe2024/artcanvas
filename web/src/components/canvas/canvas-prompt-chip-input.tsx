@@ -28,8 +28,8 @@ type Token =
     | { type: "text"; value: string }
     | { type: "reference"; label: string };
 
-// 提示词面板专用的 contentEditable 输入框:@ 引用图片时直接内嵌真实缩略图 chip,而不是「图片1」文字。
-// 序列化时 chip → 引用 label 文本(如「图片1」),保证发给生成的 value 语义与旧 textarea 版一致。
+// 提示词面板专用的 contentEditable 输入框:@ 引用图片时直接内嵌真实缩略图 chip。
+// 序列化时 chip → 当前生成模式的引用 label；视频模式使用与提交顺序一致的 @n。
 export function CanvasPromptChipInput({ value, references, onChange, onSubmit, className, style, placeholder }: Props) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
@@ -43,7 +43,7 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
 
     const activeReferences = useMemo(() => references.filter((item) => item.active), [references]);
     const referenceByLabel = useMemo(() => new Map(activeReferences.map((item) => [item.label, item])), [activeReferences]);
-    // 长 label 优先匹配,避免「图片1」把「图片10」切坏。
+    // 长 label 优先匹配，避免短编号把长编号切坏。
     const activeLabels = useMemo(() => Array.from(new Set(activeReferences.map((item) => item.label))).sort((a, b) => b.length - a.length), [activeReferences]);
     const tokens = useMemo(() => parseTokens(value, activeLabels), [value, activeLabels]);
 
@@ -71,6 +71,16 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
         });
         lastEmittedRef.current = value;
     }, [tokens, referenceByLabel, theme, value]);
+
+    useEffect(() => {
+        const editor = editorRef.current;
+        if (!editor || document.activeElement !== editor) return;
+        refreshReferenceChips(editor, activeReferences);
+        const next = serializeEditor(editor);
+        if (next === value) return;
+        lastEmittedRef.current = next;
+        onChange(next);
+    }, [activeReferences, onChange, value]);
 
     const emit = (next: string) => {
         lastEmittedRef.current = next;
@@ -250,7 +260,7 @@ function MentionMenu({ rect, references, activeIndex, theme, onSelect }: { rect:
                 >
                     <ReferencePreview reference={reference} />
                     <span className="min-w-0 flex-1">
-                        <span className="block font-medium">{reference.label}</span>
+                        <span className="block font-medium">{reference.displayLabel}</span>
                         <span className="block truncate opacity-65">{reference.text || reference.title}</span>
                     </span>
                 </button>
@@ -261,12 +271,25 @@ function MentionMenu({ rect, references, activeIndex, theme, onSelect }: { rect:
 }
 
 function ReferencePreview({ reference }: { reference: CanvasResourceReference }) {
-    if (reference.kind === "image" && reference.previewUrl) return <img src={reference.previewUrl} alt="" className="size-9 rounded-md object-cover" />;
-    if (reference.kind === "video" && reference.previewUrl) return <video src={reference.previewUrl} className="size-9 rounded-md bg-black object-cover" muted preload="metadata" />;
+    if (reference.kind === "image" && reference.previewUrl)
+        return (
+            <span className="relative size-9 shrink-0 overflow-hidden rounded-md">
+                <img src={reference.previewUrl} alt="" className="size-full object-cover" />
+                <ReferenceIndexBadge label={reference.label} />
+            </span>
+        );
+    if (reference.kind === "video" && reference.previewUrl)
+        return (
+            <span className="relative size-9 shrink-0 overflow-hidden rounded-md bg-black">
+                <video src={reference.previewUrl} className="size-full object-cover" muted preload="metadata" />
+                <ReferenceIndexBadge label={reference.label} />
+            </span>
+        );
     const Icon = reference.kind === "audio" ? Music2 : reference.kind === "video" ? Video : reference.kind === "image" ? ImageIcon : FileText;
     return (
-        <span className="grid size-9 shrink-0 place-items-center rounded-md bg-black/10">
+        <span className="relative grid size-9 shrink-0 place-items-center rounded-md bg-black/10">
             <Icon className="size-4" />
+            {reference.kind !== "text" ? <ReferenceIndexBadge label={reference.label} /> : null}
         </span>
     );
 }
@@ -275,13 +298,20 @@ function createReferenceChip(reference: CanvasResourceReference, theme: (typeof 
     const wrapper = document.createElement("span");
     wrapper.contentEditable = "false";
     wrapper.dataset.refLabel = reference.label;
+    wrapper.dataset.refNodeId = reference.nodeId;
+    wrapper.title = `${reference.displayLabel} · ${reference.title}`;
+    wrapper.setAttribute("aria-label", wrapper.title);
     if (reference.kind === "image" && reference.previewUrl) {
         const image = document.createElement("img");
         image.src = reference.previewUrl;
         image.alt = reference.title;
-        image.className = "size-6 rounded object-cover";
-        wrapper.className = "mx-px inline-flex size-6 items-center justify-center overflow-hidden rounded align-middle";
-        wrapper.appendChild(image);
+        image.className = "size-full rounded object-cover";
+        const badge = document.createElement("span");
+        badge.dataset.referenceIndexBadge = "true";
+        badge.className = "pointer-events-none absolute left-0.5 top-0.5 rounded bg-black/75 px-1 py-0.5 text-[9px] font-semibold leading-none text-white shadow-sm ring-1 ring-white/30";
+        badge.textContent = reference.label;
+        wrapper.className = "relative mx-px inline-flex h-7 w-11 items-center justify-center overflow-hidden rounded align-middle";
+        wrapper.append(image, badge);
         wrapper.addEventListener("click", (event) => {
             event.preventDefault();
             event.stopPropagation();
@@ -290,13 +320,37 @@ function createReferenceChip(reference: CanvasResourceReference, theme: (typeof 
     } else {
         wrapper.className = "mx-px inline-flex h-6 max-w-40 items-center justify-center overflow-hidden rounded-md border px-1 text-xs leading-none align-middle";
         Object.assign(wrapper.style, { background: theme.toolbar.panel, borderColor: theme.node.stroke, color: theme.node.text } as CSSProperties);
-        wrapper.title = reference.text || reference.title;
         const text = document.createElement("span");
+        text.dataset.referenceDisplayLabel = "true";
         text.className = "block truncate";
-        text.textContent = reference.kind === "text" ? reference.text || reference.title : reference.label;
+        text.textContent = reference.kind === "text" ? reference.text || reference.title : reference.displayLabel;
         wrapper.appendChild(text);
     }
     return wrapper;
+}
+
+function refreshReferenceChips(editor: HTMLElement, references: CanvasResourceReference[]) {
+    const referenceByNodeId = new Map(references.map((reference) => [reference.nodeId, reference]));
+    editor.querySelectorAll<HTMLElement>("[data-ref-node-id]").forEach((chip) => {
+        const reference = referenceByNodeId.get(chip.dataset.refNodeId || "");
+        if (!reference) return;
+        chip.dataset.refLabel = reference.label;
+        chip.title = `${reference.displayLabel} · ${reference.title}`;
+        chip.setAttribute("aria-label", chip.title);
+        const image = chip.querySelector<HTMLImageElement>("img");
+        if (image && reference.previewUrl) {
+            image.src = reference.previewUrl;
+            image.alt = reference.title;
+        }
+        const badge = chip.querySelector<HTMLElement>("[data-reference-index-badge]");
+        if (badge) badge.textContent = reference.label;
+        const text = chip.querySelector<HTMLElement>("[data-reference-display-label]");
+        if (text && reference.kind !== "text") text.textContent = reference.displayLabel;
+    });
+}
+
+function ReferenceIndexBadge({ label }: { label: string }) {
+    return <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-black/75 px-1 py-0.5 text-[9px] font-semibold leading-none text-white shadow-sm ring-1 ring-white/30">{label}</span>;
 }
 
 function serializeEditor(editor: HTMLElement) {

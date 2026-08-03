@@ -5,6 +5,10 @@
   "pages": [
     "local-development",
     "canvas-data-structure",
-    "local-codex-canvas"
+    "local-codex-canvas",
+    "uniart-video-parameters",
+    "canvas-video-reference-assets",
+    "video-reference-index-contract",
+    "video-task-polling-contract"
   ]
 }

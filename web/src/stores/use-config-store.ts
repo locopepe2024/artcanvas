@@ -6,10 +6,16 @@ import { nanoid } from "nanoid";
 export type ApiCallFormat = "openai" | "gemini" | "ark";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 export type ReasoningEffort = "auto" | "low" | "medium" | "high" | "xhigh";
+export type VideoReferenceMode = "text_to_video" | "image_to_video" | "image_reference" | "first_last_frames" | "omni_reference";
+export type VideoCapabilityModeId = "text_to_video" | "image_to_video" | "image_reference" | "first_last_frame" | "omni_reference";
+export type VideoCapability = {
+    modes: Array<{ id: VideoCapabilityModeId; inputTypes: Array<"text" | "image" | "video" | "audio"> }>;
+};
 
 export type ChannelModel = {
     name: string;
     capability: ModelCapability;
+    videoCapability?: VideoCapability;
     script?: string;
 };
 
@@ -41,6 +47,8 @@ export type AiConfig = {
     vquality: string;
     videoGenerateAudio: string;
     videoWatermark: string;
+    videoReferenceMode: VideoReferenceMode;
+    videoFaceMode?: string;
     systemPrompt: string;
     reasoningEffort: ReasoningEffort;
     models: string[];
@@ -99,6 +107,8 @@ export const defaultConfig: AiConfig = {
     vquality: "720",
     videoGenerateAudio: "true",
     videoWatermark: "false",
+    videoReferenceMode: "image_reference",
+    videoFaceMode: "false",
     systemPrompt: "",
     reasoningEffort: "auto",
     models: ["default::gpt-image-2", "default::grok-imagine-video", "default::gpt-5.5", "default::gpt-4o-mini-tts"],
@@ -154,6 +164,10 @@ function findChannelModel(config: AiConfig, value: string): { channel: ModelChan
 
 export function modelCapabilityOf(config: AiConfig, value: string): ModelCapability | undefined {
     return findChannelModel(config, value)?.model.capability;
+}
+
+export function videoCapabilityOf(config: AiConfig, value: string): VideoCapability | undefined {
+    return findChannelModel(config, value)?.model.videoCapability;
 }
 
 export function modelMatchesCapability(config: AiConfig, value: string, capability?: ModelCapability) {
@@ -244,6 +258,8 @@ export const useConfigStore = create<ConfigStore>()(
                         vquality: config.vquality || "720",
                         videoGenerateAudio: config.videoGenerateAudio || "true",
                         videoWatermark: config.videoWatermark || "false",
+                        videoReferenceMode: config.videoReferenceMode || "image_reference",
+                        videoFaceMode: config.videoFaceMode || "false",
                         canvasImageCount: config.canvasImageCount || "3",
                     },
                 };
@@ -267,9 +283,19 @@ export function normalizeChannelModels(models: Array<string | ChannelModel> | un
         seen.add(name);
         const capability = typeof item === "string" ? guessCapability(name) : item.capability || guessCapability(name);
         const script = typeof item === "string" ? undefined : item.script?.trim() || undefined;
-        result.push({ name, capability, script });
+        const videoCapability = typeof item === "string" ? undefined : normalizeVideoCapability(item.videoCapability);
+        result.push({ name, capability, videoCapability, script });
     }
     return result;
+}
+
+export function normalizeVideoCapability(value: VideoCapability | undefined): VideoCapability | undefined {
+    const allowedModes = new Set<VideoCapabilityModeId>(["text_to_video", "image_to_video", "image_reference", "first_last_frame", "omni_reference"]);
+    const allowedInputs = new Set<"text" | "image" | "video" | "audio">(["text", "image", "video", "audio"]);
+    const modes = (Array.isArray(value?.modes) ? value.modes : [])
+        .filter((mode) => allowedModes.has(mode.id))
+        .map((mode) => ({ id: mode.id, inputTypes: Array.from(new Set((Array.isArray(mode.inputTypes) ? mode.inputTypes : []).filter((input) => allowedInputs.has(input)))) }));
+    return modes.length ? { modes } : undefined;
 }
 
 export function createModelChannel(channel?: Partial<ModelChannel>): ModelChannel {

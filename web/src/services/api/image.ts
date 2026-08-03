@@ -1,6 +1,6 @@
 import axios from "axios";
 
-import { buildApiUrl, resolveModelRequestConfig, resolveModelScript, type AiConfig, type ModelChannel } from "@/stores/use-config-store";
+import { buildApiUrl, guessCapability, normalizeVideoCapability, resolveModelRequestConfig, resolveModelScript, type AiConfig, type ChannelModel, type ModelCapability, type ModelChannel, type VideoCapability, type VideoCapabilityModeId } from "@/stores/use-config-store";
 import { normalizePluginImages, runModelPlugin } from "./model-plugin";
 import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
@@ -910,20 +910,35 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
             return (response.data.models || [])
                 .map((model) => model.name?.replace(/^models\//, ""))
                 .filter((id): id is string => Boolean(id))
-                .sort((a, b) => a.localeCompare(b));
+                .sort((a, b) => a.localeCompare(b))
+                .map((name) => ({ name, capability: guessCapability(name) }));
         }
-        const response = await axios.get<{ data?: Array<{ id?: string }>; error?: { message?: string } }>(buildApiUrl(config.baseUrl, "/models"), {
+        const response = await axios.get<{ data?: ApiModel[]; error?: { message?: string } }>(buildApiUrl(config.baseUrl, "/models"), {
             headers: {
                 Authorization: `Bearer ${config.apiKey}`,
             },
         });
-        return (response.data.data || [])
-            .map((model) => model.id)
-            .filter((id): id is string => Boolean(id))
-            .sort((a, b) => a.localeCompare(b));
+        return (response.data.data || []).map(channelModelFromApiModel).filter((model): model is ChannelModel => Boolean(model)).sort((a, b) => a.name.localeCompare(b.name));
     } catch (error) {
         throw new Error(readAxiosError(error, "读取模型失败"));
     }
+}
+
+type ApiModel = {
+    id?: string;
+    supported_endpoint_types?: string[];
+    video_capability?: { modes?: Array<{ id?: string; input_types?: string[] }> };
+};
+
+function channelModelFromApiModel(model: ApiModel): ChannelModel | null {
+    const name = model.id?.trim();
+    if (!name) return null;
+    const endpoints = model.supported_endpoint_types || [];
+    const capability: ModelCapability = endpoints.includes("openai-video") ? "video" : endpoints.includes("image-generation") ? "image" : guessCapability(name);
+    const videoCapability = normalizeVideoCapability({
+        modes: (model.video_capability?.modes || []).map((mode) => ({ id: mode.id as VideoCapabilityModeId, inputTypes: (mode.input_types || []) as VideoCapability["modes"][number]["inputTypes"] })),
+    });
+    return { name, capability, videoCapability };
 }
 
 export async function fetchChannelModels(channel: ModelChannel) {

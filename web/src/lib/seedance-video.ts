@@ -28,7 +28,7 @@ export const seedanceRatioOptions = [
     { value: "adaptive", label: "自适应" },
 ] as const;
 
-export const seedanceDurationOptions = [-1, 4, 5, 6, 8, 10, 12, 15] as const;
+export const seedanceDurationOptions = [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] as const;
 
 const seedancePixels = {
     "480p": {
@@ -75,7 +75,6 @@ export function normalizeResolutionToken(value: string) {
 }
 
 export function normalizeSeedanceDuration(value: string) {
-    if (String(value).trim() === "-1") return -1;
     const seconds = Math.floor(Number(value) || 5);
     return Math.max(4, Math.min(15, seconds));
 }
@@ -113,17 +112,19 @@ export function boolConfig(value: string | undefined, fallback: boolean) {
     return fallback;
 }
 
-export function seedanceReferenceLabel(kind: "image" | "video" | "audio", index: number) {
-    if (kind === "image") return `图片${index + 1}`;
-    if (kind === "video") return `视频${index + 1}`;
-    return `音频${index + 1}`;
+export type SeedanceReferenceCounts = { images: number; videos: number };
+
+export function seedanceReferenceLabel(kind: "image" | "video" | "audio", index: number, counts: SeedanceReferenceCounts = { images: 0, videos: 0 }) {
+    const offset = kind === "video" ? counts.images : kind === "audio" ? counts.images + counts.videos : 0;
+    return `@${offset + index + 1}`;
 }
 
 export function buildSeedancePromptText(prompt: string, images: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[]) {
+    const counts = { images: images.length, videos: videos.length };
     const labels = [
-        ...images.map((_, index) => seedanceReferenceLabel("image", index)),
-        ...videos.map((_, index) => seedanceReferenceLabel("video", index)),
-        ...audios.map((_, index) => seedanceReferenceLabel("audio", index)),
+        ...images.map((_, index) => seedanceReferenceLabel("image", index, counts)),
+        ...videos.map((_, index) => seedanceReferenceLabel("video", index, counts)),
+        ...audios.map((_, index) => seedanceReferenceLabel("audio", index, counts)),
     ];
     const text = prompt.trim();
     if (!labels.length) return text;
@@ -134,7 +135,7 @@ export function seedanceVideoReferenceError(videos: ReferenceVideo[]) {
     let totalDurationMs = 0;
     for (let index = 0; index < videos.length; index += 1) {
         const video = videos[index];
-        const label = seedanceReferenceLabel("video", index);
+        const label = `参考视频${index + 1}`;
         if (!SEEDANCE_VIDEO_MIME_TYPES.includes(video.type)) return `${label} 仅支持 mp4/mov 格式`;
         if (video.bytes && video.bytes > SEEDANCE_REFERENCE_LIMITS.videoMaxBytes) return `${label} 超过 200MB，请压缩后再上传`;
         if (video.durationMs) {

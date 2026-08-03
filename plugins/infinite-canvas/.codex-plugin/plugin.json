@@ -1,27 +1,27 @@
 {
   "name": "infinite-canvas",
   "version": "0.1.0",
-  "description": "Use Codex to read and operate Infinite Canvas through the local Canvas Agent MCP server.",
+  "description": "Use Codex to read and operate ArtCanvas through the local Canvas Agent MCP server.",
   "author": {
-    "name": "basketikun",
-    "url": "https://canvas.best/"
+    "name": "locopepe2024",
+    "url": "https://github.com/locopepe2024/artcanvas"
   },
-  "homepage": "https://canvas.best/",
-  "repository": "https://github.com/basketikun/infinite-canvas",
+  "homepage": "https://canvas.uniart.fun/",
+  "repository": "https://github.com/locopepe2024/artcanvas",
   "license": "AGPL-3.0",
   "keywords": ["infinite-canvas", "canvas", "mcp", "agent"],
   "skills": "./skills/",
   "mcpServers": "./.mcp.json",
   "interface": {
-    "displayName": "Infinite Canvas",
-    "shortDescription": "Use Codex to operate the current Infinite Canvas board.",
-    "longDescription": "Connects Codex to the local Canvas Agent MCP server so Codex can inspect the current Infinite Canvas board, create nodes, connect flows, and trigger generation through the web canvas confirmation flow.",
-    "developerName": "basketikun",
+    "displayName": "ArtCanvas",
+    "shortDescription": "Use Codex to operate the current ArtCanvas board.",
+    "longDescription": "Connects Codex to the local Canvas Agent MCP server so Codex can inspect the current ArtCanvas board, create nodes, connect flows, and trigger generation through the web canvas confirmation flow.",
+    "developerName": "locopepe2024",
     "category": "Productivity",
     "capabilities": ["Canvas", "MCP", "Creative Workflow"],
-    "websiteURL": "https://canvas.best/",
+    "websiteURL": "https://canvas.uniart.fun/",
     "defaultPrompt": [
-      "打开 Infinite Canvas",
+      "打开 ArtCanvas",
       "读取当前画布并总结节点结构",
       "根据选中节点创建一组生图提示词"
     ],

@@ -1,0 +1,42 @@
+name: Bug report
+description: 报告可以稳定复现的问题
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: 请先移除 API Key、Cookie、个人画布内容和其他敏感信息。
+  - type: input
+    id: version
+    attributes:
+      label: ArtCanvas版本
+      placeholder: v0.14.0 或 commit SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 环境
+      placeholder: Chrome 版本、操作系统、Docker或本地开发
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 请提供最小、连续的复现步骤。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期行为
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为和日志
+      description: 日志必须脱敏。
+    validations:
+      required: true

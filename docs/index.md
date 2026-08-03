@@ -17,6 +17,8 @@
 
 - [本地开发](/docs/development/local-development)
 - [画布数据结构](/docs/development/canvas-data-structure)
+- [视频参考素材索引契约](/docs/development/video-reference-index-contract)
+- [视频任务查询契约](/docs/development/video-task-polling-contract)
 
 ## 商务合作
 

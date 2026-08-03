@@ -7,7 +7,7 @@ import { videoResolutionOptions, videoSecondOptions, videoSizeOptions } from "@/
 import type { CanvasAgentSnapshot } from "@/lib/canvas/canvas-agent-ops";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAssetStore } from "@/stores/use-asset-store";
-import { modelOptionLabel, modelOptionName, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore } from "@/stores/use-config-store";
+import { modelOptionLabel, modelOptionName, normalizeModelOptionValue, selectableModelsByCapability, useConfigStore, type AiConfig } from "@/stores/use-config-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 
 // 在网页端执行 Agent 的「站点级」工具（画布列表、工作台生成、提示词搜索、资产增删查等）。
@@ -187,11 +187,12 @@ function getVideoConfig() {
         current: {
             model,
             modelName: modelOptionName(model),
-            size: config.size || "1280x720",
+            size: config.size || "16:9",
             seconds: config.videoSeconds || "6",
-            resolution: config.vquality || "720",
+            resolution: config.vquality || "720p",
             generateAudio: config.videoGenerateAudio !== "false",
             watermark: config.videoWatermark === "true",
+            referenceMode: config.videoReferenceMode || "image_reference",
         },
         models: selectableModelsByCapability(config, "video").map((value) => ({ value, label: modelOptionLabel(config, value) })),
         sizeOptions: videoSizeOptions,
@@ -227,6 +228,10 @@ function runVideoWorkbench(input: SiteToolInput, navigate: NavigateFunction) {
     if (typeof input.watermark === "boolean") {
         configStore.updateConfig("videoWatermark", String(input.watermark));
         applied.watermark = input.watermark;
+    }
+    if (["text_to_video", "image_to_video", "image_reference", "first_last_frames", "omni_reference"].includes(String(input.referenceMode))) {
+        configStore.updateConfig("videoReferenceMode", input.referenceMode as AiConfig["videoReferenceMode"]);
+        applied.referenceMode = input.referenceMode;
     }
     const prompt = typeof input.prompt === "string" ? input.prompt : undefined;
     const run = input.run !== false;

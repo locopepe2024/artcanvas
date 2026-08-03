@@ -1,0 +1,2 @@
+# Upstream protocol documentation uses a UUID-shaped idempotency example, not a credential.
+40c47dd7ffd3972e88b4503f8b070f1f2becd788:canvas-agent/codex-server.md:generic-api-key:2140

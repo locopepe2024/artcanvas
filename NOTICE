@@ -1,0 +1,15 @@
+ArtCanvas
+=========
+
+This repository is a derivative of Infinite Canvas:
+
+  https://github.com/basketikun/infinite-canvas
+
+The upstream project and its contributors retain copyright in their
+respective contributions. The upstream source and the modifications in this
+repository are distributed under the GNU Affero General Public License v3.0.
+
+The Git history is intentionally preserved so that authorship and the origin
+of individual changes can be inspected. The ArtCanvas Contributor License
+Agreement applies only to contributions submitted to the ArtCanvas repository;
+it does not retroactively cover upstream contributions.
