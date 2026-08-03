@@ -2,8 +2,13 @@
 
 This Contributor License Agreement ("Agreement") applies to any code,
 documentation, design asset, issue text, pull request, patch, or other
-material ("Contribution") that you submit to the infinite-canvas project
+material ("Contribution") that you submit to the ArtCanvas project
 ("Project").
+
+This Agreement applies only to new Contributions submitted to the ArtCanvas
+repository. It does not retroactively apply to code or other material inherited
+from `basketikun/infinite-canvas`; those upstream contributions remain governed
+by their original copyright, license, and contribution terms.
 
 By submitting a Contribution, you agree to the terms below.
 
@@ -88,4 +93,4 @@ or by requiring acceptance through an automated CLA workflow.
 ## 8. Contact
 
 For questions about this Agreement, contact the maintainers through the
-repository or email `1844025705@qq.com`.
+ArtCanvas repository.

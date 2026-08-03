@@ -3,7 +3,6 @@ import { appName, gitConfig } from './shared';
 import { ArrowUpRight } from 'lucide-react';
 
 const githubUrl = `https://github.com/${gitConfig.user}/${gitConfig.repo}`;
-const qqUrl = 'https://qm.qq.com/q/DFnKzZ807u';
 
 export function baseOptions(): BaseLayoutProps {
   return {
@@ -28,7 +27,7 @@ export function baseOptions(): BaseLayoutProps {
             <ArrowUpRight className="size-4" />
           </span>
         ),
-        url: 'https://canvas.best/',
+        url: 'https://canvas.uniart.fun/',
         external: true,
         on: 'nav',
       },
@@ -40,15 +39,6 @@ export function baseOptions(): BaseLayoutProps {
         external: true,
         on: 'menu',
         icon: <img src="/github.svg" alt="" className="size-4" />,
-      },
-      {
-        type: 'icon',
-        text: 'QQ',
-        label: 'QQ',
-        url: qqUrl,
-        external: true,
-        on: 'menu',
-        icon: <img src="/qq.svg" alt="" className="size-4" />,
       },
     ],
   };

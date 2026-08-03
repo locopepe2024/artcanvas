@@ -1,9 +1,9 @@
 ---
 name: open-canvas
-description: 打开 Infinite Canvas 在线或本地画布，并自动连接本地 Canvas Agent。用户要求打开、启动、进入或使用 Infinite Canvas 画布时使用。
+description: 打开 ArtCanvas 在线或本地画布，并自动连接本地 Canvas Agent。用户要求打开、启动、进入或使用 ArtCanvas 画布时使用。
 ---
 
-# Open Infinite Canvas
+# Open ArtCanvas
 
 默认打开在线版。只有用户明确要求使用本地项目时，才启动本地前端。
 
@@ -20,12 +20,12 @@ npx -y @basketikun/canvas-agent
 3. 在 Codex 右侧浏览器打开：
 
 ```text
-https://canvas.best/canvas?mode=new&agentUrl=<Local URL>&agentToken=<Connect token>
+https://canvas.uniart.fun/canvas?mode=new&agentUrl=<Local URL>&agentToken=<Connect token>
 ```
 
 ## 本地版
 
-1. 在 Infinite Canvas 项目中启动前端，并使用 Vite 输出的 `Local` 地址：
+1. 在 ArtCanvas 项目中启动前端，并使用 Vite 输出的 `Local` 地址：
 
 ```bash
 cd web

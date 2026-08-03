@@ -1,4 +1,4 @@
-# Infinite Canvas Agent
+# ArtCanvas Agent
 
 本地 Canvas Agent 用来连接画布网页和用户电脑上的 Codex / Claude Code。本地开发时优先连接 `http://localhost:3000`，不需要先使用线上站点。
 
@@ -7,6 +7,14 @@
 ```bash
 npx -y @basketikun/canvas-agent
 ```
+
+需要排查连接、线程、Codex app-server 或工具调用问题时，可开启 Debug 模式：
+
+```bash
+npx -y @basketikun/canvas-agent --debug
+```
+
+Debug 日志会以 `[DEBUG][HH:mm:ss]` 等传统格式输出到终端，并按启动日期保存到 `~/.infinite-canvas/logs/canvas-agent-YYYY-MM-DD.log`。终端日志带级别颜色，文件日志为纯文本；日志包含 HTTP、SSE、线程、turn、Codex app-server 和工具调用事件，token 与图片 Data URL 会自动隐藏。
 
 本仓库开发时也可以直接运行：
 
@@ -32,9 +40,7 @@ Canvas Agent 默认只监听 `127.0.0.1`。网页第一次带正确 token 连接
 
 ## 发布
 
-`canvas-agent` 使用自己的 `package.json` 版本号，不跟仓库根目录 `VERSION` 绑定。推送到 `main` 后，GitHub Actions 会检查 npm 上是否已经存在当前包版本；不存在时才发布 `@basketikun/canvas-agent`。
-
-发布前需要在 GitHub 仓库 Secrets 中配置 `NPM_TOKEN`。
+`canvas-agent` 使用自己的 `package.json` 版本号，不跟仓库根目录 `VERSION` 绑定。ArtCanvas 当前保留与上游 `@basketikun/canvas-agent` 的协议兼容，但本仓库不配置 npm 自动发布；需要验证 ArtCanvas 中的 Agent 源码时，请在本目录执行 `npm ci && npm run build` 后直接运行 `node dist/index.js`。
 
 ## Codex MCP
 
@@ -72,7 +78,7 @@ codex plugin add infinite-canvas@infinite-canvas-local
 npx -y @basketikun/canvas-agent mcp
 ```
 
-使用时可以直接在 Codex 里说“打开 Infinite Canvas”，插件会启动本地 Agent，读取 Local URL 和 Connect token，然后在右侧打开 `https://canvas.best/` 并自动新建、连接画布；只有明确要求使用本地项目时才会启动本地前端。
+使用时可以直接在 Codex 里说“打开 ArtCanvas”，插件会启动本地 Agent，读取 Local URL 和 Connect token，然后在右侧打开 `https://canvas.uniart.fun/` 并自动新建、连接画布；只有明确要求使用本地项目时才会启动本地前端。
 
 Canvas Agent 启动后，给 Codex 添加 MCP：
 
@@ -126,7 +132,7 @@ default_tools_approval_mode = "approve"
 
 本地面板会把提示词发送给 Canvas Agent。Canvas Agent 使用官方 `@openai/codex` CLI 的 `codex app-server --stdio` 启动并复用同一个 Codex thread，启动时会注入 `infinite-canvas` MCP 配置并自动放行 MCP 审批，真正执行画布修改前仍由网页侧边栏二次确认。
 
-侧边栏会展示 Codex 返回的 `thread.started`、`turn.started`、`item.*`、`turn.completed` 等结构化事件；收到 app-server 的 `item/agentMessage/delta` 时，Canvas Agent 会转成 `item.updated`，网页会用同一条消息做真实流式更新，并把工具细节收进运行日志。
+侧边栏会展示 Codex 返回的 `thread.started`、`turn.started`、`item.*`、`turn.completed` 等结构化事件；Canvas Agent 会合并短时间内的回复、思考摘要和命令输出增量，网页使用同一条消息持续更新，并把任务进度、计划、搜索、文件修改与工具操作整理为中文过程时间线。
 
 侧边栏上传或粘贴的图片会先发到本机 Canvas Agent，再由 Canvas Agent 临时写入本机文件并作为 app-server `localImage` 输入传给 Codex；前端会提示附件体积，单次请求体限制为 30MB。
 

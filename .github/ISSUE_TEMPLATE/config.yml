@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/locopepe2024/artcanvas/security/advisories/new
+    about: 请使用私密渠道提交漏洞，不要公开密钥或利用细节。
