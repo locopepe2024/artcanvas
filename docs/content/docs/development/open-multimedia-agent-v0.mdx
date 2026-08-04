@@ -1,0 +1,794 @@
+---
+title: 开源多媒体 Agent v0 架构规范
+description: ArtCanvas 面向 IYIShow 技术预研的通用 Agent、记忆、Skill 与多媒体工具边界
+---
+
+# 开源多媒体 Agent v0 架构规范
+
+本文档冻结 ArtCanvas Open Multimedia Agent v0 的职责、数据所有权、协议和实施顺序。它是后续实现的设计基线，不代表文中组件已经上线或通过运行时验证。
+
+## 目标
+
+ArtCanvas 将作为 IYIShow Web Agent 的开源技术预研平台，在不绑定单一 Agent 供应商的前提下，逐步提供：
+
+- Agent 对话与会话管理。
+- 上下文组装、摘要和分层记忆。
+- Skill 安装、删除、启用、停用、版本固定和升级提示。
+- 简单的 Skill 项目、发布、广场展示和安装流程。
+- 图片、视频、音频、语音、剪辑和编辑等开源工具的统一注册与调用。
+- 对高风险工具调用的权限声明、审批、审计和可追溯执行。
+- 可替换的 Agent Runtime Adapter，Codex 只是其中一个适配器。
+
+## 非目标
+
+v0 不包含：
+
+- 从已验证画布工作流自动提炼、生成或发布 Skill。
+- 让记忆直接成为任务状态、计费、资产、发布或执行结果的权威来源。
+- 自动信任第三方 Skill 或直接在宿主机无限制执行其脚本。
+- 将所有第三方项目源码复制进 ArtCanvas 单体仓库。
+- 一次性实现完整的视频剪辑器、音频工作站或模型训练平台。
+- 以 Agent 的文本回复代替 Runtime 的终态、资产和画布更新。
+
+## 当前状态与证据等级
+
+### Observed
+
+- `canvas-agent` 当前同时处理 localhost token 与 Origin 校验、网页画布状态同步、SSE、浏览器工具 RPC、附件落盘和 MCP 画布工具。
+- 当前 Agent 生命周期直接映射 Codex app-server 的 thread、turn、item、模型、推理强度和审批协议。
+- 网页端 API 仍包含 `/agent/codex/*` 路由，事件历史也包含 Codex 专用归一化逻辑。
+- 当前画布和“我的素材”主要以浏览器本地数据为权威；本文档不把它们描述为已经云端多用户同步。
+- 仓库采用 AGPL-3.0，并保留 Infinite Canvas 上游历史和声明。
+
+当前实现的主要证据入口：
+
+- `canvas-agent/src/server/http.ts`：localhost HTTP、SSE、token / Origin、画布状态和 Agent 路由。
+- `canvas-agent/src/config.ts`：本地工作区与 Canvas Agent 配置。
+- `canvas-agent/src/agent/codex.ts`：Codex 会话、附件、工作区和请求编排。
+- `canvas-agent/src/agent/codex-client.ts`：Codex app-server 进程、JSON-RPC、事件与审批转换。
+- `canvas-agent/src/agent/codex-protocol.ts`：Codex thread / turn / item 和模型协议类型。
+- `web/src/components/agent/agent-api.ts`：网页侧 Canvas Agent 与 Codex 专用接口。
+- `LICENSE` 与 `NOTICE`：仓库许可和上游声明。
+
+### Direct implication
+
+- 直接在现有 Codex 类上继续增加记忆、Skill 广场和多媒体执行，会把供应商协议与产品数据模型绑定得更深。
+- 需要增加通用 `agent-service`，由它拥有产品级会话、上下文、记忆、Skill 和审批协议；Codex、Deep Agents 或 ACP 都通过适配器接入。
+- `canvas-agent` 应逐步收敛为本地连接器和兼容层，不再承担所有产品级持久化职责。
+
+### Not yet proven
+
+- AG-UI、Deep Agents、LangGraph 和 ACP 在 ArtCanvas 当前前端、部署方式和本地连接模型中的完整兼容性尚未通过原型验证。
+- 多媒体工具在不同操作系统、GPU、容器和浏览器环境中的稳定性与资源成本尚未形成运行时证据。
+- 分层记忆是否能提高任务完成率、减少上下文成本或改善用户体验尚无统计支持。
+- 第三方工具的字段声明不证明其运行时实际遵守权限、资源和输出契约。
+
+### Hypotheses
+
+- 统一事件协议加 Runtime Adapter 可以降低替换 Agent 引擎的成本。
+- 将记忆限制为召回与建议，可以减少过期记忆覆盖任务事实的风险。
+- 通过清单、隔离执行和发布摘要管理第三方工具，比直接合并源码更适合长期开放生态。
+
+### What would verify it
+
+- 用一个 Mock Runtime 和一个 Deep Agents Runtime 完成同一套会话、流式事件、审批和 Canvas MCP 契约测试。
+- 在至少一个图片工具、一个视频工具和一个音频工具上验证清单、权限、执行、取消、终态和产物入库闭环。
+- 对记忆关闭与开启两组任务记录上下文大小、人工修正次数、成功率和错误召回率。
+- 对每个第三方集成保存精确 revision、构建产物摘要、SBOM、许可证审查和隔离环境运行证据。
+
+## 设计原则
+
+1. **Runtime 是执行权威。** Agent 可以规划和请求执行，但不能用自然语言宣告替代任务终态。
+2. **Memory 不是业务事实库。** 记忆只参与召回、建议和上下文组装，不拥有任务、计费、资产或发布状态。
+3. **协议与引擎解耦。** 产品会话和网页事件不得以 Codex thread/turn/item 作为唯一数据模型。
+4. **先声明后授权。** Skill 和工具先声明权限、资源、输入输出和来源，再允许安装或执行。
+5. **发布不可变。** 可编辑项目和已发布版本分离；安装固定到版本和内容摘要。
+6. **能力存在不等于有效。** 清单中的能力必须经适配器探测或契约测试后，才能标记为可用。
+7. **优先适配而非复制。** 首选 MCP、子进程、隔离容器或 HTTP Adapter，减少上游代码分叉。
+
+## 目标架构
+
+```text
+ArtCanvas Web
+    │ AG-UI compatible events / SSE or streaming HTTP
+    ▼
+agent-service/
+    ├── sessions
+    ├── context
+    ├── memory
+    ├── skills
+    ├── marketplace
+    ├── approvals
+    ├── tool-registry
+    └── runtime-adapters
+           ├── deepagents
+           ├── acp
+           ├── codex-compat
+           └── mock
+                 │
+                 ▼
+        Deep Agents / LangGraph or another runtime
+                 ├── Canvas MCP
+                 ├── Multimedia Tool Registry
+                 └── ArtCanvas Runtime APIs
+
+canvas-agent/
+    ├── localhost connection and token/origin security
+    ├── browser canvas bridge
+    ├── local MCP bridge
+    └── local runtime compatibility adapters
+```
+
+### 目录建议
+
+```text
+agent-service/
+  src/
+    api/
+    sessions/
+    context/
+    memory/
+    skills/
+    marketplace/
+    approvals/
+    tools/
+    runtimes/
+      deepagents/
+      acp/
+      codex-compat/
+      mock/
+    persistence/
+  migrations/
+  tests/
+
+canvas-agent/
+  src/
+    local-connector/
+    canvas/
+    mcp/
+    runtime-adapters/
+```
+
+目录是建议，不要求首个实现提交一次创建全部模块。实施应采用薄纵向切片。
+
+## 所有权边界
+
+| 领域 | 权威所有者 | 可以做 | 不可以做 |
+| --- | --- | --- | --- |
+| 意图与规划 | Web Agent | 理解意图、选择能力、绑定参数、生成高层计划 | 宣告任务已成功、伪造资产或计费状态 |
+| 执行与终态 | Runtime | 调用工具、维护执行状态、取消、重试、聚合结果 | 用未经确认的记忆覆盖请求参数 |
+| 画布与资产 | ArtCanvas Runtime / 现有画布控制层 | 应用操作、保存产物引用、更新节点 | 把聊天消息当成已应用画布操作 |
+| 记忆 | Memory Service | 召回、建议、摘要、记录来源和置信度 | 成为任务、计费、资产、权限或发布权威 |
+| Skill | Skills Service | 管理项目、Release、Installation 和启停状态 | 绕过工具权限或直接声明执行成功 |
+| 广场 | Marketplace | 管理可见 Listing 和安装入口 | 修改不可变 Release 内容 |
+| 工具能力 | Multimedia Tool Registry | 声明 schema、权限、来源、运行方式和探测状态 | 仅凭清单字段认定能力生产可用 |
+
+## 通用 Agent 协议
+
+### 产品级标识
+
+产品数据使用通用标识：
+
+```ts
+type AgentSession = {
+  id: string;
+  workspaceId: string;
+  runtimeKey: string;
+  title: string;
+  status: "idle" | "running" | "waiting_approval" | "failed" | "archived";
+  createdAt: string;
+  updatedAt: string;
+};
+
+type AgentRun = {
+  id: string;
+  sessionId: string;
+  status: "queued" | "running" | "waiting_approval" | "succeeded" | "failed" | "cancelled";
+  runtimeRef?: { adapter: string; sessionId?: string; runId?: string };
+  startedAt?: string;
+  finishedAt?: string;
+};
+```
+
+Codex `threadId`、`turnId` 和 `itemId` 只保存在 `runtimeRef` 或 Adapter 私有映射中。迁移期间仍须遵守现有消息去重规则：实时事件只补充未物化内容，持久历史成为权威后不得重复合并。
+
+### 事件包络
+
+前端协议采用 AG-UI 兼容语义，但 ArtCanvas 必须保存自己的稳定包络：
+
+```ts
+type AgentEventEnvelope = {
+  eventId: string;
+  sessionId: string;
+  runId: string;
+  sequence: number;
+  type: string;
+  timestamp: string;
+  payload: unknown;
+  runtimeRef?: Record<string, string>;
+};
+```
+
+契约要求：
+
+- `(runId, sequence)` 唯一并单调递增。
+- 客户端可携带最后确认的 `eventId` 断线续传。
+- 流式事件不是最终历史的唯一存储；Run 终态后可读取物化快照。
+- Adapter 负责把供应商事件转换为通用事件，前端不增加新的供应商专用分支。
+- 工具请求、审批、工具结果和 Run 终态必须是不同事件，不得合并成一条文本消息。
+
+### Runtime Adapter
+
+```ts
+interface AgentRuntimeAdapter {
+  key: string;
+  capabilities(): Promise<RuntimeCapabilities>;
+  createSession(input: RuntimeSessionInput): Promise<RuntimeSessionRef>;
+  resumeSession(ref: RuntimeSessionRef): Promise<void>;
+  run(input: RuntimeRunInput): AsyncIterable<AgentEventEnvelope>;
+  cancel(runRef: RuntimeRunRef): Promise<void>;
+  resolveApproval(input: RuntimeApprovalDecision): Promise<void>;
+}
+```
+
+`capabilities()` 返回的是声明和探测结果，不自动证明每项能力有效。服务应同时记录 `declared`、`probed`、`lastVerifiedAt` 和失败原因。
+
+## 会话与上下文管理
+
+### 会话模型
+
+- Session 是用户可见的对话容器。
+- Run 是一次用户提交到终态的执行单位。
+- Message 是用户或 Agent 可读内容。
+- Event 是运行过程事实，用于流式恢复和审计。
+- Artifact 是 Runtime 产生的文件、画布操作集、报告或媒体引用。
+- Approval 是对明确工具调用或权限申请的用户决定。
+
+删除或归档会话不得隐式删除仍被画布、资产库、Skill Release 或审计记录引用的 Artifact。
+
+### 上下文组装顺序
+
+每次 Run 由 Context Service 按固定顺序组装：
+
+1. 系统与工作区策略。
+2. 当前用户请求及显式附件。
+3. 当前画布选择、节点与资产摘要。
+4. 当前 Session 的近期消息和工作摘要。
+5. 已启用 Skill 的相关说明与工具定义。
+6. 经策略允许且达到阈值的项目/用户记忆。
+7. Runtime Adapter 所需的协议转换。
+
+Context Service 必须输出可审计的 `ContextManifest`，记录每一段上下文的来源、版本、字节或 token 估算以及是否被截断。超限时优先压缩历史，不得静默移除当前请求、审批约束或选中素材。
+
+## 分层记忆
+
+| 层级 | 内容 | 生命周期 | 写入规则 |
+| --- | --- | --- | --- |
+| Turn/Event Log | 原始消息、事件、审批和结果引用 | 持久 | 由会话与 Runtime 事件写入 |
+| Session Working Context | 当前计划、摘要、未完成事项 | 会话级 | 可自动更新，必须可重建 |
+| Project Memory | 项目约束、术语、稳定决策 | 工作区级 | 显式确认或有来源的规则写入 |
+| User Memory | 用户偏好、习惯和默认选择 | 用户级 | 默认 opt-in，可查看、编辑、删除 |
+| Skill Learning Candidate | 可复用步骤或 Skill 候选 | 候选级 | 只建议，不自动安装或发布 |
+
+每条长期记忆至少包含：
+
+```ts
+type MemoryRecord = {
+  id: string;
+  scope: "project" | "user";
+  subject: string;
+  content: string;
+  sourceRefs: string[];
+  confidence: number;
+  status: "active" | "superseded" | "deleted";
+  createdAt: string;
+  updatedAt: string;
+  expiresAt?: string;
+};
+```
+
+记忆召回必须保留来源，并允许用户查看“本次为什么使用这条记忆”。记忆冲突时不自动覆盖当前输入；应降级为建议或请求确认。
+
+## Skill 生命周期
+
+### 包结构
+
+v0 兼容 Agent Skills 的基础目录：
+
+```text
+skill-name/
+├── SKILL.md
+├── scripts/
+├── references/
+├── assets/
+├── artcanvas.skill.json
+└── LICENSE
+```
+
+`SKILL.md` 面向 Agent 阅读；`artcanvas.skill.json` 面向安装器、权限系统和 Runtime。官方内置 Skill 与第三方 Skill 使用同一结构和校验流程。
+
+### ArtCanvas Skill Manifest
+
+```ts
+type ArtCanvasSkillManifest = {
+  schemaVersion: "1";
+  id: string;
+  name: string;
+  version: string;
+  source: { repository: string; revision: string; digest: string };
+  license: { spdx: string; noticeFiles: string[] };
+  modalities: Array<"text" | "image" | "video" | "audio">;
+  requiredTools: Array<{ toolKey: string; versionRange: string }>;
+  permissions: {
+    filesystem: "none" | "workspace" | "selected_files";
+    network: boolean;
+    shell: boolean;
+  };
+  inputSchema?: object;
+  outputSchema?: object;
+  compatibleRuntimes: string[];
+};
+```
+
+### v0 操作
+
+- 从官方内置目录、GitHub URL 或受支持的包安装。
+- 安装到用户或工作区 scope。
+- 删除 Installation，不直接删除仍被 Release 引用的内容。
+- 启用或停用 Installation。
+- 固定版本和内容摘要。
+- 检查更新并提示，不自动升级。
+- 安装前查看内容、来源、许可证、权限、工具依赖和校验摘要。
+- 安装后重新校验 digest，执行时仍做权限与依赖预检。
+
+## 简易 Skills 广场
+
+v0 只实现最小发布模型：
+
+```text
+SkillProject/Draft  --publish-->  immutable SkillRelease
+       │                                  │
+       └── editable                       ├── version
+                                          ├── source revision
+                                          ├── content digest
+                                          └── manifest snapshot
+
+SkillRelease  <-- MarketplaceListing -->  SkillInstallation
+```
+
+- `SkillProject`：作者可编辑的 Skill 草稿和源地址。
+- `SkillRelease`：不可变版本，保存内容摘要、清单快照和来源 revision。
+- `MarketplaceListing`：标题、简介、图标、标签、可见性和当前推荐 Release。
+- `SkillInstallation`：用户或工作区安装记录，固定 Release 和 digest。
+
+发布流程至少包含 schema 校验、引用文件存在性、许可证字段、权限摘要和危险脚本提示。v0 的“审核通过”只表示完成规则检查，不代表 Skill 效果、内容安全或生产稳定性已被证明。
+
+## 多媒体工具注册表
+
+### 工具清单
+
+```ts
+type MultimediaToolManifest = {
+  toolKey: string;
+  version: string;
+  license: string;
+  source: {
+    repository: string;
+    revision: string;
+  };
+  modalities: Array<"image" | "video" | "audio" | "text">;
+  executionMode: "mcp" | "container" | "local_process" | "http";
+  inputSchema: object;
+  outputSchema: object;
+  permissions: {
+    filesystem: "none" | "workspace" | "selected_files";
+    network: boolean;
+    shell: boolean;
+  };
+  resourceClass: "light" | "cpu" | "gpu";
+};
+```
+
+注册表还必须保存：
+
+- 安装状态、探测状态和最近验证时间。
+- 可执行入口和 Adapter 版本。
+- 超时、并发、取消与重试策略。
+- 产物 MIME、大小限制和持久化策略。
+- 模型权重的来源、版本和独立许可证。
+- 构建来源、产物摘要、SBOM 和第三方声明。
+
+### 工具执行状态
+
+```text
+declared -> installed -> probed -> available
+                         └──────> unavailable
+
+queued -> running -> waiting_approval -> succeeded
+   └───────────────> failed | cancelled | expired
+```
+
+工具清单存在只证明 `declared`。只有安装成功并通过实际探测后才能进入 `available`。Agent 选择工具前读取可用状态；Runtime 在执行前再次预检，避免状态漂移。
+
+### 首批验证工具
+
+首批不按“功能最多”选择，而按边界风险选择三个薄切片：
+
+1. 图片：输入图片与参数，输出新图片和元数据。
+2. 音频：输入音视频，输出音轨或处理后的音频。
+3. 视频：输入媒体与时间参数，执行可取消的长任务并输出视频。
+
+每个薄切片都必须验证输入 schema、权限、进度、取消、错误、终态、产物引用和重复请求处理。
+
+## Canvas 与多媒体执行契约
+
+- Agent 只提交结构化 `ToolExecutionRequest`，不直接写画布 store。
+- Runtime 返回 `Artifact` 和可选 `CanvasOperationSet`。
+- Canvas Operation 应先校验目标画布、节点版本和权限，再由现有画布控制层应用。
+- 任务成功与画布应用成功是两个状态；画布应用失败不能把已生成产物改写为生成失败。
+- 资产上传、会话引用、画布绑定和素材库成员关系是不同操作，不因任一操作成功而隐式推导其他操作成功。
+- 长任务的查询、瞬时错误和终态继续遵守现有视频任务查询契约。
+
+## Canvas 连线模型与长程任务编排
+
+### Observed
+
+- 当前节点关系使用带逻辑端口的扁平有向边列表：`CanvasConnection = { id, fromNodeId, toNodeId, sourcePort, targetPort }`，内置默认端口为 `output/input`。
+- 项目数据把 `nodes` 和 `connections` 直接持久化到浏览器本地；打开旧项目时会补齐默认端口，但不会对已存在的整张图执行环审计或拓扑校验。
+- 手工拖线和 Canvas Agent 的 `connect_nodes` 共用前端连接契约，新边会拒绝自连、成环、同端口重复边、Group 连线以及不支持的内置节点类型组合。
+- 未注册的插件节点类型保持连接扩展性，但仍受端点存在、自连、成环和同端口重复边约束。
+- 连线视图根据节点位置绘制三次贝塞尔曲线；它是渲染算法，不是自动布局或调度算法。
+- 生成输入主要读取目标节点的一跳入边；Config 节点存在一层专用资源查找规则。
+- 重试来源查找会沿入边向上执行带 `visited` 集合的广度优先搜索，找到首个 Config 节点后停止。
+- 当前代码没有发现拓扑排序、入度就绪队列、全图环检测、依赖终态传播或持久化任务运行图。
+
+主要代码入口：
+
+- `web/src/types/canvas.ts`：`CanvasConnection` 数据结构。
+- `web/src/pages/canvas/project.tsx`：手工连线创建、去重和持久化更新。
+- `web/src/lib/canvas/canvas-node-geometry.ts`：连线方向归一化和局部类型限制。
+- `web/src/lib/canvas/canvas-agent-ops.ts`：Agent 批量连线应用逻辑。
+- `web/src/components/canvas/canvas-connections.tsx`：贝塞尔连线渲染。
+- `web/src/lib/canvas/canvas-resource-references.ts`：直接上游素材解析。
+- `web/src/lib/canvas/canvas-generation-helpers.ts`：重试时向上游 BFS 查找 Config。
+
+### Direct implication
+
+- 前端已能阻止手工或 Agent 新建连接形成环，但这只约束新边；没有全图导入审计、拓扑调度和运行状态传播，因此不能据此宣称整个持久化图或 Runtime 是 DAG。
+- 当前连线同时承载视觉关系、素材参考和生成上下文；逻辑端口已经存在，但仍缺少边类型和执行语义，不能直接作为长程任务依赖图。
+- BFS 中的 `visited` 只能避免该次查找在环中无限循环，不会阻止环进入项目数据，也不会提供 DAG 调度能力。
+- 如果直接把所有现有连线解释为执行依赖，可能把仅用于素材参考或视觉组织的边错误地变成阻塞条件。
+
+### Not yet proven
+
+- 现有用户画布中是否已经存在自环、双向边或更长的环，尚无实际数据统计。
+- 哪些现有连线应解释为数据依赖、素材引用、控制依赖或纯视觉关系，当前数据没有足够字段证明。
+- DAG 是否足以表达所有 Agent 长程任务尚未验证；重试、人工介入、循环改进和动态重规划通常需要 DAG 之外的控制状态。
+
+### Hypotheses
+
+- 将 Canvas 语义图、Workflow Definition DAG 和 Runtime Run Graph 分离，可以保留自由画布体验，同时为 Agent 提供可靠编排。
+- 单次计划 revision 使用 DAG，Agent 通过创建新的计划 revision 追加或替换后续步骤，比允许执行依赖图直接成环更容易审计和恢复。
+- 循环改进应由受限控制节点、次数/成本预算和重规划事件表达，而不是在数据依赖边中制造环。
+
+### What would verify it
+
+- 对浏览器本地项目导出样本运行图审计，统计自环、双向边、环、孤立边和不同节点类型组合。
+- 完成浏览器交互测试，验证手工拖线、Agent、旧项目恢复、复制粘贴和插件入口都遵守端口及连接契约；导入入口另行增加全图审计策略。
+- 选择一个“脚本拆解 → 配音 → 画面生成 → 合成 → 人工确认”的长程任务，验证 Workflow 编译、拓扑调度、暂停恢复、失败重试和产物传播。
+- 验证 Agent 重规划产生新的 immutable revision，运行历史仍能指向实际执行的旧 revision 和节点尝试。
+
+### 三层图模型
+
+后继编排不直接替换现有 `connections`，而是明确区分三层：
+
+```text
+Canvas Semantic Graph
+    用户编辑的节点、位置、分组、素材引用和视觉关系
+                │ explicit compile
+                ▼
+Workflow Definition DAG (immutable revision)
+    可执行节点、端口、typed edges、条件、权限和策略
+                │ start run
+                ▼
+Runtime Run Graph
+    节点 attempt、终态、Artifact、审批、重试和时间线
+```
+
+1. **Canvas Semantic Graph** 是创作和表达界面，可以包含尚不可执行的节点和关系。
+2. **Workflow Definition DAG** 是经编译、校验并冻结的计划版本，只包含明确可执行语义。
+3. **Runtime Run Graph** 是执行事实，保存实际 attempt 和终态；它不能由画布当前显示状态反向推导。
+
+### Typed Edge 与端口
+
+现有边只有节点级 `from/to`。后继执行图至少需要：
+
+```ts
+type WorkflowEdge = {
+  id: string;
+  from: { nodeId: string; port: string };
+  to: { nodeId: string; port: string };
+  kind: "data" | "artifact" | "control" | "condition";
+  condition?: object;
+};
+```
+
+- `data`：结构化参数传递。
+- `artifact`：图片、视频、音频或文件产物传递。
+- `control`：前置步骤完成后允许后继进入就绪检查。
+- `condition`：基于结构化结果选择分支，不执行自然语言字符串判断。
+
+纯视觉关系和素材提及不进入 Workflow DAG，除非用户或 Agent 在编译预览中明确确认其执行含义。
+
+### Workflow 编译器
+
+Canvas 到 Workflow 的转换必须经过显式编译：
+
+1. 选择要纳入执行的节点和关系。
+2. 将 Canvas 节点解析为版本固定的 Skill 或 Tool capability。
+3. 解析端口、输入输出 schema、Artifact 类型和权限。
+4. 拒绝缺失节点、悬空端口、自环和执行依赖环。
+5. 使用拓扑排序生成稳定执行层级；无法排序即编译失败。
+6. 冻结 `WorkflowRevision`、清单摘要、Skill / Tool 版本和权限快照。
+7. 向用户展示编译预览，再创建 Run。
+
+编译成功只证明结构满足契约，不证明工具会成功或工作流产出质量达标。
+
+### Runtime 调度状态
+
+```ts
+type WorkflowNodeRunStatus =
+  | "pending"
+  | "ready"
+  | "queued"
+  | "running"
+  | "waiting_approval"
+  | "blocked"
+  | "succeeded"
+  | "failed"
+  | "skipped"
+  | "cancelled";
+```
+
+Runtime 根据依赖终态和条件把节点从 `pending` 推进到 `ready`，再按并发、资源、权限和配额进入 `queued/running`。Agent 可以提出重试、跳过或重规划，但 Runtime 拥有实际状态转换和 Artifact 绑定。
+
+每个节点执行必须保存独立 attempt、幂等键、输入快照、输出 Artifact、错误、审批和开始/结束时间。长程任务重启后从持久化 Run Graph 恢复，不能依赖浏览器仍保持打开。
+
+### Agent 长程任务边界
+
+- Agent 负责把目标拆成高层步骤、选择 Skill / Tool、补充参数和提出新的 Workflow revision。
+- Workflow Compiler 负责 schema、端口、环、权限和版本校验。
+- Runtime Scheduler 负责就绪判断、并发、重试、取消、超时、配额和终态传播。
+- Memory 只提供约束和偏好建议，不决定某节点是否已完成。
+- 用户审批绑定具体 revision、节点 attempt、工具、参数摘要和权限。
+- 动态重规划创建新 revision；已执行 attempt 保留在原 revision 的审计链中。
+
+## IYIShow / UniFlow Canvas 复用决策
+
+### Observed
+
+- IYIShow 是发布与组合面，当前画布源码来自其锁定的 UniFlow source revision，而不是 IYIShow 独立维护的第二套 Canvas 内核。
+- 被审计的 IYI 发布候选锁定 UniFlow revision `86a6d794f8a93076aaa8f993a7991f9b0e065d0e`。
+- UniFlow 前端使用 React Flow，边包含 `source_node_id`、`target_node_id`、`source_port` 和 `target_port`。
+- UniFlow 前端 `wouldCreateCanvasCycle()` 会从候选目标节点沿出边搜索；如果可回到源节点，则拒绝新边。
+- UniFlow 后端会把 Workflow Group 内的持久化边投影为 `dependency_task_ids`：根节点进入 `queued`，有前置依赖的节点进入 `blocked_by_dependency`，依赖全部成功后再释放为 `queued`。
+- UniFlow 的主 `frontend/src/components/canvas-client.tsx` 约 2.8 万行，并直接依赖认证、账户工作区、资产、项目、节点、任务队列、SSE、UniRoute、容器工具和大量产品状态。
+- UniFlow 当前说明明确把 Workflow Group 描述为第一阶段 DAG target generation；参数级隐式引用、所有容器 provider dispatch、结果沉淀、前端完整接线和计划任务仍未全部完成。
+- 在被审计的 UniFlow 组合树中未发现根级开源许可证文件；即使代码作者和仓库所有者可确认授权，迁移前仍需形成明确的版权与许可证证据。
+
+### Direct implication
+
+- UniFlow 已经提供比 ArtCanvas 更成熟的 DAG 入口，但它不是可以直接复制的独立 Canvas package。
+- 整体移植会同时引入 Next.js / React Flow 迁移、后端 FastAPI / PostgreSQL API、认证、owner/workspace、资产生命周期、任务队列和 UniRoute 契约，范围远超 Agent v0。
+- 直接复制 `canvas-client.tsx` 会把 ArtCanvas 当前较轻的 Vite、本地数据和自定义画布架构替换为 UniFlow 产品单体，后续仍需再次拆分。
+- UniFlow 的前端环检测有直接复用价值，但后端 `EdgeService` 本身没有独立执行同等环检测；不能仅凭前端校验宣称所有写入入口都保证 DAG。
+- UniFlow 的 Workflow Group 依赖队列是有价值的运行时参考，但当前实现仍不是本文规范要求的 immutable Workflow Revision + Runtime Run Graph 完整模型。
+
+### Not yet proven
+
+- 将 ArtCanvas 的自定义画布整体替换为 React Flow 是否能改善大画布性能、交互一致性或 Agent 编排体验，尚无同数据集对比。
+- UniFlow 哪些模块的版权可由项目所有者直接以 AGPL-3.0 重新发布，哪些部分包含其他贡献者或第三方来源，尚未完成 provenance 审计。
+- UniFlow 现有 DAG 在循环写入绕过前端、依赖失败、取消、结果未沉淀和服务重启场景下是否都能正确收敛，尚需契约与数据库级验证。
+
+### 推荐决策
+
+不整体移植 IYIShow / UniFlow Canvas。采用“清洁抽取共享内核 + 两侧 Adapter”的方式：
+
+```text
+                   open-source upstream
+              ArtCanvas Workflow Graph Core
+                 ├── graph contracts
+                 ├── cycle validation
+                 ├── workflow compiler
+                 ├── revision model
+                 └── runtime contracts
+                         ▲       ▲
+                         │       │
+              ArtCanvas Adapter  IYIShow / UniFlow Adapter
+```
+
+ArtCanvas 应成为通用 Agent、Workflow Graph 和 Skill / Tool 契约的开源上游；IYIShow 保留产品级账户、资产、计费、供应商和团队工作区能力，通过 Adapter 使用共享内核。后续修复优先回到共享内核，避免形成双向复制的长期 fork。
+
+### 建议抽取的模块
+
+第一批可以按 clean-room / provenance-reviewed 方式提炼：
+
+- 节点、端口、Typed Edge 和 Graph Snapshot 类型。
+- 自环、重复边、悬空端口和环检测。
+- 稳定拓扑排序和执行层级计算。
+- Canvas Semantic Graph 到 Workflow Revision 的编译结果与错误模型。
+- Workflow node / edge digest 和 immutable revision 标识。
+- Runtime Node Attempt、依赖就绪、失败传播、取消和恢复状态契约。
+- React Flow 与通用 Graph Core 之间的可选 UI Adapter。
+
+其中 UniFlow 的 `canvas-edge-contract.ts` 可以作为行为参考；新内核不能只复制字段和函数后就宣称已验证，必须补齐后端入口一致性、环检测、拓扑排序和属性测试。
+
+### 不应直接移植的模块
+
+- `canvas-client.tsx` 整体及其页面壳。
+- IYIShow / UniFlow 登录、owner profile、团队 workspace 和权限 UI。
+- UniRoute 模型路由、计费、钱包、供应商和 API Key 逻辑。
+- COS、签名 URL、资产生命周期和 IYIShow 素材库专属实现。
+- 当前产品容器中与具体 API、任务和数据库字段绑定的提交逻辑。
+- 用户通知、任务中心和 SSE 投影的产品专属文案与页面状态。
+
+这些能力可以通过 ArtCanvas Runtime API、Artifact Adapter 和 Tool Adapter 接入，而不是成为 Graph Core 的依赖。
+
+### React Flow 迁移边界
+
+React Flow 可以作为 ArtCanvas 后续 UI Adapter 候选，但不应成为 Graph Core 或 Runtime 契约的所有者。建议先建立并行原型路由或 feature flag：
+
+1. 使用同一份 Graph Snapshot 分别渲染当前 ArtCanvas Canvas 和 React Flow 原型。
+2. 验证节点拖拽、端口、连线、分组、复制粘贴、缩放、主题和 Agent 操作等价性。
+3. 使用 100、500、1000 节点数据集比较首屏、拖拽、缩放、边更新和内存。
+4. 验证现有图片、视频、音频、Config 和插件节点能够通过 Adapter 渲染。
+5. 只有达到功能与性能门槛后，才决定是否替换 ArtCanvas 的显示层。
+
+无论 UI 是否迁移到 React Flow，Workflow Compiler 和 Runtime Run Graph 都保持相同协议。
+
+### 许可证与来源准入
+
+从 IYIShow / UniFlow 提炼代码进入公开 ArtCanvas 前，必须：
+
+1. 确认精确 source revision 和原始文件列表。
+2. 列出每个文件的作者、版权人和外部来源。
+3. 由有权主体明确授权以 ArtCanvas 的 AGPL-3.0 发布。
+4. 保留必要版权声明、第三方许可证和 NOTICE。
+5. 记录是直接迁移、修改迁移还是基于行为契约重新实现。
+6. 对 React Flow 和其他依赖锁定精确版本并验证其许可证。
+
+未完成上述证据前，只能把 UniFlow 代码当作内部架构参考，不能把“同一组织仓库”推导为已获得开源再发布授权。
+
+### What would verify it
+
+- 产出 UniFlow Canvas import graph，把纯算法、React Flow UI、产品 API 和后端 Runtime 四类依赖分别标记。
+- 对候选抽取文件完成逐文件 provenance / license 清单。
+- 在 ArtCanvas 新增独立 `workflow-graph-core` 原型，不依赖 React、浏览器、UniFlow API 或数据库，并通过同一组环与拓扑 fixture。
+- 让 ArtCanvas Adapter 和 UniFlow Adapter 对同一个 Workflow fixture 产生相同 canonical revision digest。
+- 用真实但不收费的 Mock 工具完成跨服务暂停、恢复、失败、审批和重规划验收。
+
+## 权限、安全与隔离
+
+### 权限级别
+
+- `read`：读取会话、已选画布摘要或用户明确选择的文件。
+- `write`：创建产物、修改工作区文件或应用画布操作。
+- `network`：访问清单声明的域名或服务。
+- `shell`：启动明确入口的受控进程，不等于任意 Shell 权限。
+- `gpu`：使用受配额和并发限制的 GPU 执行环境。
+
+高风险权限必须在安装时展示，并在首次执行或权限变化时确认。审批绑定 `sessionId`、`runId`、具体工具、参数摘要、权限集合和有效范围，不能使用模糊的全局“永久允许”。
+
+### 默认执行策略
+
+- 第三方工具默认使用隔离容器或受限子进程。
+- 默认拒绝宿主机任意路径、任意网络和任意 Shell。
+- 文件访问使用工作区或用户显式选择的文件句柄。
+- Secret 通过短期引用注入，不写入事件、记忆、Skill 内容或日志。
+- 输出先写临时隔离区，经 MIME、大小和策略校验后再进入 Artifact Store。
+- 安装、升级、执行、审批和发布都写审计事件。
+
+## 开源与供应链治理
+
+每个第三方 Skill、工具和 Runtime Adapter 必须记录：
+
+- 源码 URL 和精确 tag/commit。
+- SPDX 许可证标识和许可证文本。
+- 是否修改以及 ArtCanvas 补丁位置。
+- 版权声明和 NOTICE 要求。
+- 构建环境、命令、依赖锁和产物摘要。
+- 网络、文件系统、Shell 和硬件权限。
+- 模型权重来源及其独立许可证与使用限制。
+- SBOM 或第三方依赖清单。
+
+AGPL-3.0 项目可优先接入 MIT、Apache-2.0 和 BSD 等兼容依赖并保留声明。SSPL、BUSL、Elastic License、Commons Clause、非商业/仅研究许可、限制 SaaS 或多租户的许可、无许可证仓库，默认不得直接合并；如仅通过独立服务或本地工具适配，也必须单独完成法律与分发边界审查。
+
+源码许可证与模型权重许可证必须分别判断，不能因代码开源就推导权重可再分发。
+
+## 持久化最小模型
+
+v0 至少需要以下逻辑实体：
+
+- `agent_sessions`
+- `agent_runs`
+- `agent_messages`
+- `agent_events`
+- `agent_approvals`
+- `agent_artifacts`
+- `session_context_snapshots`
+- `memory_records`
+- `skill_projects`
+- `skill_releases`
+- `marketplace_listings`
+- `skill_installations`
+- `tool_manifests`
+- `tool_installations`
+- `tool_executions`
+
+具体数据库由实现阶段决定。无论选用 SQLite、PostgreSQL 或其他存储，Release 内容摘要、Run 终态、审批和 Artifact 引用必须具备事务一致性和幂等写入约束。
+
+## 分阶段实施
+
+### Phase 0：契约与 Mock 闭环
+
+- 新建 `agent-service` 最小服务骨架。
+- 定义 Session、Run、Event、Approval、Artifact 和 Runtime Adapter 契约。
+- 定义 Canvas Semantic Graph、Workflow Revision DAG 和 Runtime Run Graph 的分层契约。
+- 完成 UniFlow Graph 候选模块的 import graph、行为 fixture 和逐文件 provenance / license 清单，不迁移产品页面壳。
+- 用 Mock Runtime 打通新建会话、流式回复、断线恢复、审批和终态。
+- 用三节点 Mock Workflow 验证编译、环拒绝、拓扑就绪、失败传播和恢复。
+- 前端增加通用 Agent API，不再新增 Codex 专用产品接口。
+
+### Phase 1：通用 Runtime 与 Canvas MCP
+
+- 接入 Deep Agents + LangGraph Adapter 原型。
+- 复用现有 Canvas MCP 和画布控制层。
+- 将 Codex 保留为 `codex-compat` 或 ACP 本地适配器，不再作为核心数据模型。
+- 完成 Agent 回复、工具请求、审批、工具结果和画布操作的端到端测试。
+
+### Phase 2：上下文与分层记忆
+
+- 实现 Context Manifest、会话摘要和项目记忆。
+- 增加用户记忆 opt-in、查看、编辑、删除和来源展示。
+- 建立记忆错误召回、过期和冲突测试集。
+
+### Phase 3：Skill 管理与简易广场
+
+- 支持官方 Skill 和 GitHub/包安装。
+- 支持删除 Installation、启停、版本固定和升级提示。
+- 实现 Project、不可变 Release、Listing 和 Installation。
+- 加入 manifest、digest、许可证和权限检查。
+
+### Phase 4：多媒体工具集
+
+- 建立工具注册、安装、探测、执行、取消和 Artifact 闭环。
+- 依次接入图片、音频、视频薄切片。
+- 形成第三方来源锁、SBOM、NOTICE 和模型权重审查流程。
+
+### Later：工作流到 Skill
+
+只有在会话、上下文、审批、Skill Release 和执行证据稳定后，才设计“从已验证画布工作流提炼 Skill”。候选生成、人工编辑、权限复核和显式发布必须分离，不允许自动从一次成功执行发布到广场。
+
+## v0 成功标准
+
+1. 同一前端会话可在 Mock Runtime 与至少一个真实通用 Runtime 间切换，不改变产品级 Session/Run/Event 数据模型。
+2. SSE 或流式 HTTP 断线后可按事件游标恢复，最终历史不重复消息。
+3. 工具调用经过结构化审批，拒绝后不会执行，批准范围不会扩散到其他 Run。
+4. 用户可安装、停用、启用和删除一个固定版本 Skill，并查看来源、许可证、权限和 digest。
+5. Skill 发布产生不可变 Release；Listing 更新不修改历史 Release。
+6. 至少三个不同模态工具完成探测、执行、取消或失败、终态和 Artifact 契约测试。
+7. 记忆可关闭、查看、编辑和删除；任务终态不依赖记忆内容。
+8. 每个第三方集成都有精确来源、许可证、构建来源、权限和 SBOM/第三方清单。
+9. Codex 专用标识只存在于兼容 Adapter 映射，不再成为新产品接口的核心字段。
+10. Canvas 连线不会被隐式当成执行依赖；只有编译成功并冻结 revision 的 Workflow DAG 可以创建长程 Run。
+11. 从 UniFlow 复用的每个文件或行为契约都有来源、许可证、修改方式和跨 Adapter fixture 证据，不包含 IYIShow 产品专属依赖。
+
+## 实施前待决策
+
+- `agent-service` 首期使用本地 SQLite 还是服务端 PostgreSQL。
+- AG-UI 的采用范围是直接兼容标准事件，还是通过 ArtCanvas 包络映射。
+- Deep Agents Runtime 部署在本地、服务端，或同时支持两者。
+- Artifact Store 首期是否只保存本地引用，还是提供可选对象存储。
+- 第三方工具允许的容器运行时和跨平台最低支持范围。
+
+这些选择会改变部署、安全和数据迁移成本，应在 Phase 0 实现规范中用原型证据决定，不能仅凭框架名称推导。

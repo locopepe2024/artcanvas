@@ -5,6 +5,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- 画布端口化连线：新建 `A → B → C` 后尝试 `C → A` 应拒绝成环，自连、Group 连线、重复的同端口边、`Audio → Image`、`Video → Image` 和 `Config → Config` 应拒绝；`Text → Image`、`Image → Video`、`Video → Audio` 及素材节点到 Config 应成功。Canvas Agent 的 `connect_nodes` 提交非法边时应返回 `connectionErrors` 且不写入连线。刷新旧画布后已有连线应补齐 `output/input` 端口并继续渲染，复制粘贴后端口字段应保持不变。
 - 视频成功结果恢复：UniArt 已返回成功终态但受保护视频下载超过超时或本地 Blob 写入失败时，画布节点应立即停止显示“生成中”，改为“结果已生成、重新下载”；刷新页面后应继续下载同一结果而不是重新轮询或重新生成任务，下载成功后节点应正常播放并清除恢复字段。
 - 模型脚本接口地址：渠道 Base URL 分别配置为 `https://uniart.fun` 和 `https://uniart.fun/v1` 时，图片生成、图片编辑、视频、音频及文本脚本均只能请求单层 `/v1/*`；已保存的旧脚本即使使用 `${baseUrl}/v1/...` 也不得产生 `/v1/v1/*`。
 - 人脸素材认证：视频创作台和画布视频设置应显示“人脸”开关；开启后提交的 UniArt metadata 应包含 `face_mode: true`，并由 UniArt 仅路由到 GlobalAI、在创建视频任务前完成素材上传；关闭后请求不得包含该标志，GlobalAI 素材上传接口不应被调用，生成请求应继续使用 ArtCanvas 的原始素材 URL。开启人脸模式但没有参考图片时应在提交前明确提示。

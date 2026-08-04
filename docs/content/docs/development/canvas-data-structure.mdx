@@ -56,7 +56,7 @@ type CanvasProject = {
 ```ts
 type CanvasNodeData = {
   id: string;
-  type: "image" | "text" | "config" | "video";
+  type: "image" | "text" | "config" | "video" | "audio" | "group" | string;
   title: string;
   position: { x: number; y: number };
   width: number;
@@ -68,7 +68,7 @@ type CanvasNodeData = {
 通用字段：
 
 - `id`：节点 ID。
-- `type`：节点类型，当前有图片、文本、生成配置、视频四类。
+- `type`：节点类型。内置类型包括图片、文本、生成配置、视频、音频和分组；插件节点使用注册的字符串类型 ID。
 - `title`：节点标题。
 - `position`：画布世界坐标，不是屏幕坐标。
 - `width` / `height`：画布世界坐标下的节点尺寸。
@@ -119,10 +119,16 @@ type CanvasConnection = {
   id: string;
   fromNodeId: string;
   toNodeId: string;
+  sourcePort: string;
+  targetPort: string;
 };
 ```
 
-连线只保存节点 ID，不保存端口坐标。渲染时根据节点位置和尺寸计算路径。
+连线保存节点 ID 和逻辑端口 ID。当前内置节点默认使用 `output` 输出端口和 `input` 输入端口；端口是业务语义标识，不保存屏幕坐标，渲染路径仍根据节点位置和尺寸计算。旧画布在打开时会为没有端口字段的连线补齐默认端口。
+
+手工拖线和 Canvas Agent 的 `connect_nodes` 共用前端连接契约，新边会拒绝自连、成环、同端口重复边、Group 连线以及不支持的内置节点类型组合。插件节点类型默认保持可扩展，但仍受自连、成环和重复边约束。
+
+这些限制只保护 Canvas 语义图的新建连线，不代表画布已经成为运行时 DAG 调度器：当前没有拓扑就绪队列、任务依赖终态传播或持久化 Run Graph；导入或旧数据中预先存在的环也尚未执行全图审计和拒绝。
 
 删除节点时会同步删除以该节点为起点或终点的连线。删除图片组根节点时，会把对应子节点一起删除。
 

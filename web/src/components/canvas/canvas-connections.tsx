@@ -29,7 +29,7 @@ export function ConnectionPath({
     const pathD = `M ${startX} ${startY} C ${startX + curvature} ${startY}, ${endX - curvature} ${endY}, ${endX} ${endY}`;
 
     return (
-        <g>
+        <g data-source-port={connection.sourcePort} data-target-port={connection.targetPort}>
             <path
                 data-connection-id={connection.id}
                 d={pathD}

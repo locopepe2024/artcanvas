@@ -1,5 +1,6 @@
 import { nanoid } from "nanoid";
 
+import { createCanvasConnection, getCanvasConnectionValidationError, normalizeCanvasConnections } from "@/lib/canvas/canvas-connection-contract";
 import { getNodeSpec, isRegisteredNodeType } from "@/lib/canvas/node-registry";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type CanvasNodeMetadata, type CanvasNodeTypeId, type ViewportTransform } from "@/types/canvas";
 
@@ -8,7 +9,7 @@ export type CanvasAgentOp =
     | { type: "update_node"; id: string; patch?: Partial<CanvasNodeData>; metadata?: CanvasNodeMetadata }
     | { type: "delete_node"; id?: string; ids?: string[]; nodeType?: CanvasNodeTypeId }
     | { type: "delete_connections"; id?: string; ids?: string[]; all?: boolean }
-    | { type: "connect_nodes"; id?: string; fromNodeId: string; toNodeId: string }
+    | { type: "connect_nodes"; id?: string; fromNodeId: string; toNodeId: string; sourcePort?: string; targetPort?: string }
     | { type: "set_viewport"; viewport: ViewportTransform }
     | { type: "select_nodes"; ids: string[] }
     | { type: "run_generation"; nodeId: string; mode?: "text" | "image" | "video" | "audio"; prompt?: string };
@@ -35,9 +36,10 @@ export function summarizeCanvasAgentOps(ops?: CanvasAgentOp[]) {
 
 export function applyCanvasAgentOps(snapshot: CanvasAgentSnapshot, ops?: CanvasAgentOp[]) {
     let nodes = snapshot.nodes;
-    let connections = snapshot.connections;
+    let connections = normalizeCanvasConnections(snapshot.connections);
     let selectedNodeIds = snapshot.selectedNodeIds;
     let viewport = snapshot.viewport;
+    const connectionErrors: string[] = [];
 
     (Array.isArray(ops) ? ops : []).forEach((op, index) => {
         if (!op?.type) return;
@@ -72,15 +74,16 @@ export function applyCanvasAgentOps(snapshot: CanvasAgentSnapshot, ops?: CanvasA
         }
         if (op.type === "connect_nodes") {
             if (!op.fromNodeId || !op.toNodeId) return;
-            const exists = connections.some((conn) => conn.fromNodeId === op.fromNodeId && conn.toNodeId === op.toNodeId);
-            const hasNodes = nodes.some((node) => node.id === op.fromNodeId) && nodes.some((node) => node.id === op.toNodeId);
-            if (!exists && hasNodes) connections = [...connections, { id: op.id || nanoid(), fromNodeId: op.fromNodeId, toNodeId: op.toNodeId }];
+            const connection = createCanvasConnection(op.id || nanoid(), op.fromNodeId, op.toNodeId, op.sourcePort, op.targetPort);
+            const error = getCanvasConnectionValidationError({ nodes, connections, connection });
+            if (error) connectionErrors.push(`${op.fromNodeId} -> ${op.toNodeId}: ${error}`);
+            else connections = [...connections, connection];
         }
         if (op.type === "set_viewport" && op.viewport) viewport = op.viewport;
         if (op.type === "select_nodes") selectedNodeIds = (op.ids || []).filter((id) => nodes.some((node) => node.id === id));
     });
 
-    return { ...snapshot, nodes, connections, selectedNodeIds, viewport };
+    return { ...snapshot, nodes, connections, selectedNodeIds, viewport, connectionErrors };
 }
 
 function opLabel(type: string) {

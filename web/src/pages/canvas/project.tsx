@@ -45,6 +45,7 @@ import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
 import { buildNodeMentionReferences, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, clampCanvasScale } from "@/lib/canvas/canvas-viewport";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
+import { createCanvasConnection, getCanvasConnectionValidationError, normalizeCanvasConnections } from "@/lib/canvas/canvas-connection-contract";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
 import { persistedCanvasVideoResult, persistedCanvasVideoTask, recoverableCanvasVideoResult, recoverableCanvasVideoTask } from "@/lib/canvas/canvas-video-task";
 import { findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, isHiddenBatchChild, isHiddenBatchConnectionEndpoint, normalizeConnection, snapNodesIntoGroup } from "@/lib/canvas/canvas-node-geometry";
@@ -398,8 +399,9 @@ function InfiniteCanvasPage() {
         const restore = async () => {
             const restoredNodes = await hydrateCanvasImages(resetInterruptedGeneration(project.nodes));
             const restoredSessions = await hydrateAssistantImages(project.chatSessions || []);
+            const restoredConnections = normalizeCanvasConnections(project.connections);
             setNodes(restoredNodes);
-            setConnections(project.connections);
+            setConnections(restoredConnections);
             setChatSessions(restoredSessions);
             setActiveChatId(project.activeChatId || null);
             setBackgroundMode(project.backgroundMode);
@@ -414,7 +416,7 @@ function InfiniteCanvasPage() {
             }
             lastHistoryRef.current = {
                 nodes: restoredNodes,
-                connections: project.connections,
+                connections: restoredConnections,
                 chatSessions: restoredSessions,
                 activeChatId: project.activeChatId || null,
                 backgroundMode: project.backgroundMode,
@@ -572,16 +574,12 @@ function InfiniteCanvasPage() {
         (current: ConnectionHandle, targetNodeId: string) => {
             if (current.nodeId === targetNodeId) return;
 
-            const connection = normalizeConnection(current.nodeId, targetNodeId, nodesRef.current, current.handleType);
-            if (!connection) {
-                message.warning("配置节点之间不能连接");
-                return;
-            }
-            const { fromNodeId, toNodeId } = connection;
-            const exists = connectionsRef.current.some((conn) => conn.fromNodeId === fromNodeId && conn.toNodeId === toNodeId);
-            if (!exists) {
-                setConnections((prev) => [...prev, { id: `conn-${Date.now()}`, fromNodeId, toNodeId }]);
-            }
+            const normalized = normalizeConnection(current.nodeId, targetNodeId, nodesRef.current, current.handleType);
+            if (!normalized) return;
+            const connection = { ...normalized, id: `conn-${Date.now()}` };
+            const error = getCanvasConnectionValidationError({ nodes: nodesRef.current, connections: connectionsRef.current, connection });
+            if (error) return void message.warning(error);
+            setConnections((prev) => [...prev, connection]);
             setContextMenu(null);
         },
         [message],
@@ -592,12 +590,12 @@ function InfiniteCanvasPage() {
             const metadata = type === CanvasNodeType.Config ? { model: effectiveConfig.imageModel || effectiveConfig.model, size: effectiveConfig.size, count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count) } : undefined;
             const newNode = createCanvasNode(type, pending.position, metadata);
             const connection = normalizeConnection(pending.connection.nodeId, newNode.id, [...nodesRef.current, newNode], pending.connection.handleType);
-            if (!connection) {
-                message.warning("配置节点之间不能连接");
-                return;
-            }
+            if (!connection) return;
+            const nextConnection = { ...connection, id: nanoid() };
+            const error = getCanvasConnectionValidationError({ nodes: [...nodesRef.current, newNode], connections: connectionsRef.current, connection: nextConnection });
+            if (error) return void message.warning(error);
             setNodes((prev) => [...prev, newNode]);
-            setConnections((prev) => [...prev, { id: nanoid(), ...connection }]);
+            setConnections((prev) => [...prev, nextConnection]);
             setSelectedNodeIds(new Set([newNode.id]));
             setSelectedConnectionId(null);
             if (type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio) setDialogNodeId(newNode.id);
@@ -635,7 +633,8 @@ function InfiniteCanvasPage() {
 
                     if (!hitsHandle && !hitsInside && !hitsExpanded) return;
                     isNearNode = true;
-                    if (node.id === current.nodeId || !normalizeConnection(current.nodeId, node.id, nodesRef.current, current.handleType)) return;
+                    const connection = normalizeConnection(current.nodeId, node.id, nodesRef.current, current.handleType);
+                    if (node.id === current.nodeId || !connection || getCanvasConnectionValidationError({ nodes: nodesRef.current, connections: connectionsRef.current, connection })) return;
 
                     const priority = hitsInside ? 0 : hitsHandle ? 1 : 2;
                     if (priority < bestPriority) {
@@ -1757,7 +1756,7 @@ function InfiniteCanvasPage() {
             };
 
             setNodes((prev) => [...prev, textNode, configNode]);
-            setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: configNode.id }, { id: nanoid(), fromNodeId: textNode.id, toNodeId: configNode.id }]);
+            setConnections((prev) => [...prev, createCanvasConnection(nanoid(), node.id, configNode.id), createCanvasConnection(nanoid(), textNode.id, configNode.id)]);
             setSelectedNodeIds(new Set([configNode.id]));
             setSelectedConnectionId(null);
             setDialogNodeId(configNode.id);
@@ -1785,7 +1784,7 @@ function InfiniteCanvasPage() {
             },
         };
         setNodes((prev) => [...prev, child]);
-        setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
+        setConnections((prev) => [...prev, createCanvasConnection(nanoid(), node.id, childId)]);
         setSelectedNodeIds(new Set([childId]));
         setDialogNodeId(childId);
         setCropNodeId(null);
@@ -1820,7 +1819,7 @@ function InfiniteCanvasPage() {
                 }),
             );
             setNodes((prev) => [...prev, ...childNodes]);
-            setConnections((prev) => [...prev, ...childNodes.map((child) => ({ id: nanoid(), fromNodeId: node.id, toNodeId: child.id }))]);
+            setConnections((prev) => [...prev, ...childNodes.map((child) => createCanvasConnection(nanoid(), node.id, child.id))]);
             setSelectedNodeIds(new Set(childNodes.map((child) => child.id)));
             setSelectedConnectionId(null);
             setDialogNodeId(null);
@@ -1856,7 +1855,7 @@ function InfiniteCanvasPage() {
                     metadata: { prompt, status: NODE_STATUS_LOADING, ...generationMetadata },
                 },
             ]);
-            setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
+            setConnections((prev) => [...prev, createCanvasConnection(nanoid(), node.id, childId)]);
             setSelectedNodeIds(new Set([childId]));
             setSelectedConnectionId(null);
             setDialogNodeId(childId);
@@ -1899,7 +1898,7 @@ function InfiniteCanvasPage() {
             },
         };
         setNodes((prev) => [...prev, child]);
-        setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
+        setConnections((prev) => [...prev, createCanvasConnection(nanoid(), node.id, childId)]);
         setSelectedNodeIds(new Set([childId]));
         setDialogNodeId(childId);
     }, []);
@@ -1933,7 +1932,7 @@ function InfiniteCanvasPage() {
                     metadata: { prompt, status: NODE_STATUS_LOADING, ...generationMetadata },
                 },
             ]);
-            setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
+            setConnections((prev) => [...prev, createCanvasConnection(nanoid(), node.id, childId)]);
             setSelectedNodeIds(new Set([childId]));
             setDialogNodeId(childId);
             const controller = startGenerationRequest(childId, node.id, childId);
@@ -2280,7 +2279,7 @@ function InfiniteCanvasPage() {
                         height: imageConfig.height,
                         metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, batchRootId: count > 1 ? rootId : undefined, ...generationMetadata },
                     }));
-                    const batchConnections = [...(isEmptyImageNode ? [] : [{ id: nanoid(), fromNodeId: nodeId, toNodeId: rootId }]), ...childIds.map((childId) => ({ id: nanoid(), fromNodeId: rootId, toNodeId: childId }))];
+                    const batchConnections = [...(isEmptyImageNode ? [] : [createCanvasConnection(nanoid(), nodeId, rootId)]), ...childIds.map((childId) => createCanvasConnection(nanoid(), rootId, childId))];
 
                     setNodes((prev) => [
                         ...prev.map((node) =>
@@ -2428,7 +2427,7 @@ function InfiniteCanvasPage() {
                             ? prev.map((node) => (node.id === nodeId ? { ...node, ...videoNode } : node))
                             : [...prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), videoNode],
                     );
-                    if (!isEmptyVideoNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: videoId }]);
+                    if (!isEmptyVideoNode) setConnections((prev) => [...prev, createCanvasConnection(nanoid(), nodeId, videoId)]);
                     const controller = startGenerationRequest(videoId, nodeId, nodeId, runController);
                     try {
                         const task = await createVideoGenerationTask(generationConfig, effectivePrompt, generationContext.referenceImages, generationContext.referenceVideos, generationContext.referenceAudios, { signal: controller.signal });
@@ -2461,7 +2460,7 @@ function InfiniteCanvasPage() {
                             ? prev.map((node) => (node.id === nodeId ? { ...node, ...audioNode } : node))
                             : [...prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_SUCCESS } } : node)), audioNode],
                     );
-                    if (!isEmptyAudioNode) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: nodeId, toNodeId: audioId }]);
+                    if (!isEmptyAudioNode) setConnections((prev) => [...prev, createCanvasConnection(nanoid(), nodeId, audioId)]);
                     const controller = startGenerationRequest(audioId, nodeId, nodeId, runController);
                     try {
                         const audio = await storeGeneratedAudio(await requestAudioGeneration(generationConfig, effectivePrompt, { signal: controller.signal }), generationConfig.audioFormat);
@@ -2494,7 +2493,7 @@ function InfiniteCanvasPage() {
                         metadata: { prompt: effectivePrompt, status: NODE_STATUS_LOADING, fontSize: 14, model: generationConfig.model, reasoningEffort: generationConfig.reasoningEffort },
                     }));
                     setNodes((prev) => [...prev.map((node) => (node.id === nodeId && isConfigNode ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)), ...childNodes]);
-                    setConnections((prev) => [...prev, ...childIds.map((childId) => ({ id: nanoid(), fromNodeId: nodeId, toNodeId: childId }))]);
+                    setConnections((prev) => [...prev, ...childIds.map((childId) => createCanvasConnection(nanoid(), nodeId, childId))]);
                 }
 
                 const controller = runController;
@@ -2743,7 +2742,7 @@ function InfiniteCanvasPage() {
                     count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count),
                 },
             );
-            const connection = { id: nanoid(), fromNodeId: sourceNode.id, toNodeId: configNode.id };
+            const connection = createCanvasConnection(nanoid(), sourceNode.id, configNode.id);
             const nextNodes = nodesRef.current.map((item) => (item.id === sourceNode.id ? { ...item, metadata: { ...item.metadata, content: prompt, prompt, status: NODE_STATUS_SUCCESS } } : item)).concat(configNode);
             const nextConnections = [...connectionsRef.current, connection];
             nodesRef.current = nextNodes;

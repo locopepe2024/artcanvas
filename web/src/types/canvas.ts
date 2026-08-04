@@ -86,6 +86,8 @@ export type CanvasConnection = {
     id: string;
     fromNodeId: string;
     toNodeId: string;
+    sourcePort: string;
+    targetPort: string;
 };
 
 export type CanvasAssistantReference = {
