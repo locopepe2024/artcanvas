@@ -7,34 +7,36 @@ description: ArtCanvas 对 UniArt 视频模型能力与请求字段的适配边�
 
 ## 目标
 
-让 ArtCanvas 使用 UniArt `/v1/models` 投影的定性视频能力展示参考方式，并把用户选择的通用视频参数发送到 `/v1/videos`；候选模型的数值参数集由 UniArt 负责适配和校验。
+让 ArtCanvas 使用 UniArt `/v1/models` 投影的视频能力展示参考方式及可选参数，并把用户选择发送到 `/v1/videos`；候选模型的参数适配和最终准入仍由 UniArt 负责。
 
 ## 已观察事实
 
 - ArtCanvas 通过用户配置的 Base URL 和 API Key 调用 `/v1/models` 与 `/v1/videos`。
-- UniArt `/v1/models` 的基础字段是模型 ID、owner 和端点类型；支持参考素材的模型可额外投影 `video_capability.modes`。
+- UniArt `/v1/models` 的基础字段是模型 ID、owner 和端点类型；视频模型可额外投影 `video_capability.modes`、`resolutions`、`ratios`、`durations` 及对应默认值。
 - UniArt `/api/pricing` 需要站点登录会话，返回价格和端点类型，但当前也不返回结构化的视频能力对象。
 - UniArt 定价页显示的“支持参数”由定价前端根据模型名称推断，不是 `/api/pricing` 响应中的参数契约。
 - `09-04`、`900`、`903`、`933` 等名称片段描述候选参数集，不能作为 Canvas 的能力权威。
 
 ## 直接结论
 
-Canvas 只消费 `/v1/models` 中的定性能力集：文生视频、图生视频、图片参考、首尾帧和全能参考。`input_types` 决定图片、视频和音频入口是否显示。
+Canvas 消费 `/v1/models` 中的结构化能力集：`modes` 决定文生视频、图生视频、图片参考、首尾帧和全能参考入口，`input_types` 决定图片、视频和音频入口，数值集合决定分辨率、比例和时长选项。
 
-素材数量、时长范围、分辨率、比例和供应商协议属于 UniArt 参数集。Canvas 不解析模型名、不复制这些数值限制；UniArt 在提交时选择候选并返回最终准入结果。
+Canvas 不解析模型名，也不自行补全服务端未声明的模型参数。素材数量和供应商协议仍属于 UniArt 参数集；UniArt 在提交时选择候选并返回最终准入结果。
 
 视频设置面板必须使用当前工作台或画布节点实际选择的视频模型作为能力判断输入。不能仅从全局 `config.model` 推断，因为它可能保存另一个同样被标记为视频能力的模型，导致设置面板与实际提交模型不一致。
 
 ## v1 范围
 
-- 拉取模型时保存 `video_capability.modes[].id` 和 `input_types`。
+- 拉取模型时保存 `video_capability.modes[].id`、`input_types`、`resolutions`、`ratios`、`durations` 和对应默认值。
 - 不从 GlobalAI、Sudashui、MEAI 或公开 Seedance SKU 的名称推导能力。
 - 没有 `video_capability` 时只保留基础文生视频，不显示参考素材入口。
-- UniArt 模型继续调用 OpenAI 兼容的 `POST /v1/videos`，使用 provider-neutral 字段：
-  - 顶层：`model`、`prompt`、`seconds`
-  - metadata：`ratio`、`resolution`、参考方式与素材 URL
+- UniArt 模型继续调用 `POST /v1/videos`，使用官方兼容的 provider-neutral `content[]` 合同：
+  - 顶层：`model`、`content`、`duration`、`ratio`、`resolution`、`generate_audio`、`return_last_frame`
+  - `content[]`：可选文本，以及带角色的图片、视频和音频 URL
+  - 素材顺序固定为全部图片、全部视频、全部音频，Canvas 的 `@N` 与该顺序一致
+- Canvas 不混用旧的 `prompt`、`reference_*` 或 `metadata.*` 素材字段，也不要求提交 `input_video_duration`；已读取到的视频总时长超过 15 秒时仍在浏览器提交前拦截。
 - 不再为 UniArt 模型发送无效的 `resolution_name` 和 `preset`。
-- 非 UniArt 模型保持原有通用请求和设置行为。
+- 非 UniArt 模型保持原有通用请求和设置行为，通用分辨率包含 2K。
 - 视频创作台把参考方式入口直接放在提示词之后、素材上传区之前；选择全能参考后，参考视频和参考音频上传区才随能力出现。画布视频节点仍把入口放在视频设置浮层顶部。
 
 ## v1 非范围
@@ -45,11 +47,11 @@ Canvas 只消费 `/v1/models` 中的定性能力集：文生视频、图生视�
 
 ## 成功标准
 
-1. Canvas 保存并使用当前实际视频模型返回的 `video_capability`。
-2. 参考方式和素材入口只由 `modes`、`input_types` 决定。
+1. Canvas 保存并使用当前实际视频模型返回的完整 `video_capability`。
+2. 参考方式和素材入口只由 `modes`、`input_types` 决定，分辨率、比例和时长只显示服务端声明的集合。
 3. 模型名含 `09-04`、`900`、`903`、`933` 但没有 `video_capability` 时，不显示参考入口。
-4. UniArt 请求不包含 `resolution_name` 或 `preset`，比例写入 `ratio`，时长写入顶层 `seconds`。
-5. 数值组合不在 Canvas 预判，UniArt 的准入错误直接反馈给用户。
+4. UniArt 请求不包含 `resolution_name`、`preset` 或旧 metadata 素材字段，比例写入顶层 `ratio`，时长以数字写入顶层 `duration`，参考素材写入 `content[]`。
+5. Canvas 不推导服务端未声明的数值组合，UniArt 的准入错误直接反馈给用户。
 6. 非 UniArt 模型的通用视频请求保持不变。
 7. 前端构建通过；部署镜像与 Git 提交可对应；HTTPS 首页和静态资源返回成功。
 

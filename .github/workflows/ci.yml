@@ -57,6 +57,25 @@ jobs:
         working-directory: canvas-agent
         run: npm run build
 
+  agent-service:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: agent-service/package-lock.json
+      - name: Install dependencies
+        working-directory: agent-service
+        run: npm ci --no-audit --no-fund
+      - name: Test
+        working-directory: agent-service
+        run: npm test
+      - name: Build
+        working-directory: agent-service
+        run: npm run build
+
   asset-server:
     runs-on: ubuntu-latest
     steps:

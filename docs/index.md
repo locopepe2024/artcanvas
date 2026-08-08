@@ -35,6 +35,7 @@
 ## 项目进度
 
 - [更新日志](/docs/progress/changelog)
+- [开源多媒体 Agent Phase 0 阶段记录](/docs/progress/open-multimedia-agent-phase0-summary)
 - [待测试](/docs/progress/pending-test)
 - [TODO](/docs/progress/todo)
 

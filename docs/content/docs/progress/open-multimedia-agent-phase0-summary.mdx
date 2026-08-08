@@ -1,0 +1,141 @@
+---
+title: 开源多媒体 Agent Phase 0 阶段记录
+description: Agent 架构、画布图契约和 Mock Runtime 当前进度及续接边界
+---
+
+# 开源多媒体 Agent Phase 0 阶段记录
+
+本文档记录暂停 Agent 开发时的真实进度。当前优先完成 Image 与 Nano 图片接入测试；图片接入验证结束后，再从本文档标记的边界继续 Agent。
+
+## 当前代码基线
+
+- Git 仓库：`locopepe2024/artcanvas`。
+- 工作分支：`codex/open-multimedia-agent-v0-spec`。
+- 已推送基线提交：`2d8edb01b5fa917c1c969d4551ca10c92c2d0539`。
+- 该提交包含 Agent v0 架构规范，以及画布端口化连线、前端环检测和节点类型连接限制。
+- 画布连接改动已经部署到 `canvas.uniart.fun` 并由用户完成浏览器验证。
+- 当前 `agent-service` 和验收后的文档更新仍在本地工作树中，尚未 commit、push 或部署。
+
+## 已完成
+
+### 架构与边界
+
+- 已冻结[开源多媒体 Agent v0 架构规范](/docs/development/open-multimedia-agent-v0)。
+- 产品级 Session、Run、Event、Approval、Artifact 与供应商 Runtime ID 分离。
+- Codex 被定义为兼容 Runtime Adapter，不再作为新产品数据模型。
+- Canvas Semantic Graph、Workflow Revision DAG 和 Runtime Run Graph 被定义为三个不同层次。
+- 明确不迁移 UniFlow/IYIShow 的账户、资产、计费、存储、任务队列和路由业务。
+
+### Canvas 图契约
+
+- `CanvasConnection` 已增加 `sourcePort/targetPort`，默认端口为 `output/input`。
+- 手工拖线和 Canvas Agent 共用连接业务契约。
+- 新连接会拒绝自连、成环、重复端口边、Group 连线和不支持的内置节点类型组合。
+- 旧画布打开时会补齐默认端口；复制粘贴会保留端口字段。
+- 浏览器验证已经通过，该事项已从待测试移入正式功能说明。
+
+### Agent Service Mock 薄切片
+
+- 已新增独立 `agent-service` 包，不修改现有 Codex Canvas Agent 的运行路径。
+- 已定义通用 Session、Run、Event、Approval、Artifact 和 `AgentRuntimeAdapter` TypeScript 契约。
+- 已实现内存状态服务和确定性的 Mock Runtime。
+- 已覆盖：
+  - 单调事件序列与事件游标续读。
+  - 审批批准后执行工具并记录 Artifact。
+  - 审批拒绝后不执行工具。
+  - 运行中取消。
+  - 等待审批时取消，并同步终止审批记录。
+  - Runtime 明确失败后的 Run/Session 失败终态。
+- GitHub CI 已增加 `agent-service` 的 `npm ci`、测试和构建任务。
+
+## 验证证据
+
+在 `agent-service` 目录执行：
+
+```bash
+npm ci --no-audit --no-fund
+npm test
+npm run build
+```
+
+结果：
+
+- Mock Runtime 契约测试：6 项通过，0 项失败。
+- TypeScript 构建：通过。
+- 文档类型检查：通过。
+- `git diff --check`：通过。
+
+这些结果是代码和本地测试事实，不代表服务端部署、真实 Runtime 或浏览器端到端已经完成。
+
+## 尚未完成
+
+- `agent-service` HTTP/SSE API。
+- Session、Run、Event、Approval 和 Artifact 的持久化数据库。
+- Run 终态物化快照与服务重启恢复。
+- 前端通用 Agent API、对话管理和 Runtime 切换界面。
+- Workflow Revision DAG、Workflow Compiler 和 Runtime Run Graph。
+- Deep Agents、Codex 兼容 Adapter 或其他真实 Runtime 接入。
+- 上下文组装、分层记忆、记忆查看/编辑/删除。
+- Skill 安装、删除、版本固定、发布和简易广场。
+- 图片、音频、视频工具注册、探测、取消和 Artifact 完整闭环。
+
+## 当前暂停边界
+
+Agent 开发暂停在“内存 Mock Runtime 契约通过，但尚无 HTTP/SSE”这一边界。
+
+暂停期间先完成：
+
+1. Image 图片接入测试。
+2. Nano 图片接入测试。
+3. 记录两类图片请求的真实模型、接口、输入参数、结果格式、错误和浏览器运行证据。
+
+图片接入是否成功不能仅根据模型名称、配置字段或代码分支判断，必须以真实请求和结果为准。
+
+### Image 与 Nano 当前验收结果
+
+使用启用的普通用户 Unitoken 对公网 `https://uniart.fun` 完成了真实请求，令牌未写入文档、命令输出或仓库。
+
+**运行时观察：**
+
+- `GET /v1/models` 返回 HTTP 200，共 14 个用户可见模型。
+- `gpt-image-2-special` 与 `nano-banana-2-special` 均可见，并声明支持 `image-generation` 和 `image-edit`。
+- 两个模型的 `/v1/models` 响应中 `image_capability` 当前均为 `null`。
+- `gpt-image-2-special` 以 1K 单图请求命中渠道 11 的 `speedgpt-image-2`，产生 44,000 quota 扣费。
+- `nano-banana-2-special` 以 1K 单图请求命中渠道 11 的 `nano-banana2`，产生 66,000 quota 扣费。
+- 两次生成都返回 HTTP 200，但响应只有 `status: processing` 和 `img_*` task ID，没有 `data`、图片 URL 或 `b64_json`。
+- 用户侧尝试读取 `/v1/images/generations/:id`、`/v1/images/:id`、`/v1/image/generations/:id` 和 `/v1/tasks/:id` 均返回 HTTP 404。
+- UniArt `tasks` 表中没有对应 `img_*` 任务记录，因此当前没有持久任务可供用户恢复查询。
+
+**直接含义：**
+
+- 模型可见性、Smart Route 候选选择和用户扣费已经得到真实运行证据。
+- 用户取得最终图片尚未得到证据；当前两条图片接入不能判定为验收通过。
+- HTTP 200 只证明上游接受并返回了异步 processing 响应，不能证明图片已经生成或交付。
+
+**代码事实：**
+
+- 当前通用 OpenAI 图片响应处理会透传上游 JSON，并按成功响应进入计费。
+- 该处理路径没有把 `processing + img_*` 转换为可持久化图片任务，也没有提供对应用户查询接口。
+
+**恢复图片验收前需要满足：**
+
+1. 对异步图片上游增加终态轮询并在原请求中返回最终 OpenAI 图片 `data`，或持久化 `img_*` 任务并发布稳定查询接口。
+2. 使用相同用户 Token 重新提交最低规格请求，取得真实图片 URL 或 `b64_json`，并验证图片内容可读取。
+3. 核对每个请求只产生一次、且与公开 1K 价格一致的扣费。
+4. 生成失败时必须进入明确失败终态，不得以不可查询的 `processing` 响应完成计费闭环。
+
+## 恢复 Agent 后的顺序
+
+1. 为 `agent-service` 增加最小 HTTP API：创建 Session、创建 Run、读取 Run、取消 Run、处理 Approval。
+2. 增加 SSE 事件流与 `Last-Event-ID`/事件游标恢复测试。
+3. 增加持久化接口和内存实现的替换边界，再通过原型证据决定 SQLite 或 PostgreSQL。
+4. 前端新增供应商无关的 Agent API，只连接 Mock Runtime，不改现有 Codex 界面。
+5. 完成三节点 Mock Workflow 的编译、环拒绝、拓扑就绪、失败传播和恢复。
+6. 上述闭环稳定后，再选择第一个真实 Runtime Adapter。
+
+## 不应提前推导
+
+- Mock Runtime 通过不证明真实 Runtime 已可替换 Codex。
+- 前端 Canvas 防环不证明持久化项目或 Runtime Run Graph 是 DAG。
+- Image/Nano 图片接入成功不证明多媒体工具注册、Artifact Store 或 Skill 系统已经完成。
+- 内存状态可运行不证明服务重启恢复和并发一致性成立。

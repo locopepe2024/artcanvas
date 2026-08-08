@@ -10,6 +10,12 @@ export type VideoReferenceMode = "text_to_video" | "image_to_video" | "image_ref
 export type VideoCapabilityModeId = "text_to_video" | "image_to_video" | "image_reference" | "first_last_frame" | "omni_reference";
 export type VideoCapability = {
     modes: Array<{ id: VideoCapabilityModeId; inputTypes: Array<"text" | "image" | "video" | "audio"> }>;
+    resolutions?: string[];
+    ratios?: string[];
+    durations?: number[];
+    defaultResolution?: string;
+    defaultRatio?: string;
+    defaultDuration?: number;
 };
 
 export type ChannelModel = {
@@ -112,7 +118,7 @@ export const defaultConfig: AiConfig = {
     systemPrompt: "",
     reasoningEffort: "auto",
     models: ["default::gpt-image-2", "default::grok-imagine-video", "default::gpt-5.5", "default::gpt-4o-mini-tts"],
-    quality: "auto",
+    quality: "1k",
     size: "1:1",
     background: "",
     count: "1",
@@ -295,7 +301,26 @@ export function normalizeVideoCapability(value: VideoCapability | undefined): Vi
     const modes = (Array.isArray(value?.modes) ? value.modes : [])
         .filter((mode) => allowedModes.has(mode.id))
         .map((mode) => ({ id: mode.id, inputTypes: Array.from(new Set((Array.isArray(mode.inputTypes) ? mode.inputTypes : []).filter((input) => allowedInputs.has(input)))) }));
-    return modes.length ? { modes } : undefined;
+    if (!modes.length) return undefined;
+    const resolutions = normalizeCapabilityStrings(value?.resolutions, true);
+    const ratios = normalizeCapabilityStrings(value?.ratios);
+    const durations = Array.from(new Set((Array.isArray(value?.durations) ? value.durations : []).map(Number).filter((item) => Number.isInteger(item) && item > 0))).sort((left, right) => left - right);
+    const defaultResolution = resolutions.find((item) => item === value?.defaultResolution?.trim().toLowerCase());
+    const defaultRatio = ratios.find((item) => item === value?.defaultRatio?.trim());
+    const defaultDuration = durations.includes(Number(value?.defaultDuration)) ? Number(value?.defaultDuration) : undefined;
+    return {
+        modes,
+        ...(resolutions.length ? { resolutions } : {}),
+        ...(ratios.length ? { ratios } : {}),
+        ...(durations.length ? { durations } : {}),
+        ...(defaultResolution ? { defaultResolution } : {}),
+        ...(defaultRatio ? { defaultRatio } : {}),
+        ...(defaultDuration ? { defaultDuration } : {}),
+    };
+}
+
+function normalizeCapabilityStrings(values: string[] | undefined, lowercase = false) {
+    return Array.from(new Set((Array.isArray(values) ? values : []).map((item) => String(item || "").trim()).filter(Boolean).map((item) => (lowercase ? item.toLowerCase() : item))));
 }
 
 export function createModelChannel(channel?: Partial<ModelChannel>): ModelChannel {

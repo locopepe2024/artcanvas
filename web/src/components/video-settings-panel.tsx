@@ -12,6 +12,7 @@ const resolutionOptions = [
     { value: "480p", label: "480p" },
     { value: "720p", label: "720p" },
     { value: "1080p", label: "1080p" },
+    { value: "1440p", label: "2K" },
     { value: "4k", label: "4K" },
 ];
 
@@ -59,7 +60,7 @@ export function VideoSettingsPanel({ config, model, onConfigChange, theme, showT
             <div className={className} style={{ color: theme.node.text }} onMouseDown={(event) => event.stopPropagation()}>
                 {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
                 <SettingGroup title="清晰度" color={theme.node.muted}>
-                    <div className="grid grid-cols-4 gap-2.5">
+                    <div className="grid grid-cols-5 gap-2.5">
                         {resolutionOptions.map((item) => (
                             <OptionPill key={item.value} selected={resolution === item.value} theme={theme} onClick={() => onConfigChange("vquality", item.value)}>
                                 {item.label}
@@ -93,6 +94,9 @@ export function VideoSettingsPanel({ config, model, onConfigChange, theme, showT
 
 function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, className, capability, showReferenceModes, compactLabels }: VideoSettingsPanelProps & { capability: UniArtVideoCapability }) {
     const params = resolveUniArtVideoParams(capability, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality });
+    const availableResolutions = capability.resolutions?.length ? capability.resolutions.map((value) => ({ value, label: resolutionTokenLabel(value) })) : resolutionOptions;
+    const availableRatios = capability.ratios?.length ? capability.ratios.map((value) => ({ value, label: videoRatioLabel(value) })) : sizeOptions;
+    const availableDurations = capability.durations?.length ? capability.durations : secondOptions;
     const generateAudio = boolConfig(config.videoGenerateAudio, true);
     const faceMode = boolConfig(config.videoFaceMode, false);
 
@@ -102,8 +106,8 @@ function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, cl
                 {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
                 {showReferenceModes ? <ReferenceModeSettings capability={capability} value={config.videoReferenceMode} theme={theme} compactLabels={compactLabels} onChange={(value) => onConfigChange("videoReferenceMode", value)} /> : null}
                 <SettingGroup title="分辨率" color={theme.node.muted}>
-                    <div className="grid grid-cols-4 gap-2.5">
-                        {resolutionOptions.map((item) => (
+                    <div className="grid grid-cols-3 gap-2.5">
+                        {availableResolutions.map((item) => (
                             <OptionPill key={item.value} selected={params.resolution === item.value} theme={theme} onClick={() => onConfigChange("vquality", item.value)}>
                                 {item.label}
                             </OptionPill>
@@ -112,7 +116,7 @@ function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, cl
                 </SettingGroup>
                 <SettingGroup title="比例" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
-                        {sizeOptions.map((item) => {
+                        {availableRatios.map((item) => {
                             const preview = ratioPreview(item.value);
                             return (
                                 <button
@@ -131,7 +135,7 @@ function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, cl
                         })}
                     </div>
                 </SettingGroup>
-                <DurationTimeline values={secondOptions} value={params.seconds} theme={theme} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
+                <DurationTimeline values={availableDurations} value={params.seconds} theme={theme} onChange={(value) => onConfigChange("videoSeconds", String(value))} />
                 <SettingGroup title="输出" color={theme.node.muted}>
                     <div className="rounded-xl border px-2.5 py-1" style={{ borderColor: theme.node.stroke }}>
                         <SwitchRow label={generateAudio ? "音频开" : "音频关"} checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
@@ -295,6 +299,7 @@ export function normalizeVideoResolutionValue(value: string) {
     if (normalized === "low" || normalized === "480" || normalized === "480p") return "480p";
     if (["auto", "high", "medium", "720", "720p"].includes(normalized)) return "720p";
     if (normalized === "1080" || normalized === "1080p") return "1080p";
+    if (normalized === "2k" || normalized === "1440" || normalized === "1440p") return "1440p";
     if (normalized === "4k" || normalized === "2160" || normalized === "2160p") return "4k";
     return "720p";
 }
@@ -387,6 +392,8 @@ function videoRatioLabel(value: string) {
 
 function resolutionTokenLabel(value: string) {
     const normalized = String(value || "720").trim();
+    if (/^(?:1440p|2k)$/i.test(normalized)) return "2K";
+    if (/^3k$/i.test(normalized)) return "3K";
     if (/^4k$/i.test(normalized)) return "4K";
     if (/^\d+(?:p|k)$/i.test(normalized)) return normalized.toLowerCase();
     const canonical = normalizeVideoResolutionValue(normalized);

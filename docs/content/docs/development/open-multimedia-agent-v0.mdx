@@ -739,6 +739,13 @@ v0 至少需要以下逻辑实体：
 - 用三节点 Mock Workflow 验证编译、环拒绝、拓扑就绪、失败传播和恢复。
 - 前端增加通用 Agent API，不再新增 Codex 专用产品接口。
 
+当前实现状态：
+
+- **代码事实：** 已新增独立 `agent-service` 包，定义产品级 Session、Run、Event、Approval、Artifact 和 `AgentRuntimeAdapter` 契约。
+- **代码事实：** 已实现内存状态服务与 Mock Runtime，覆盖流式事件、事件游标续读、结构化审批、拒绝不执行、运行取消、审批取消和 Artifact 记录。
+- **尚未实现：** HTTP/SSE API、持久化数据库、前端通用 Agent API、Workflow Revision/Run Graph、真实 Runtime Adapter、记忆和 Skill 管理。
+- **直接含义：** 当前结果只证明通用协议薄切片可运行，不代表 Phase 0 完成，也不替代现有 Codex Canvas Agent。
+
 ### Phase 1：通用 Runtime 与 Canvas MCP
 
 - 接入 Deep Agents + LangGraph Adapter 原型。

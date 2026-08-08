@@ -69,7 +69,11 @@ type ResponseStreamState = { buffer: string; text: string; payload?: ResponseApi
 
 type ImageApiResponse = {
     data?: Array<Record<string, unknown>>;
+    task_id?: string;
+    status?: string;
+    progress?: number;
     error?: { message?: string };
+    message?: string;
     code?: number;
     msg?: string;
 };
@@ -115,11 +119,38 @@ const IMAGE_OUTPUT_FORMAT = "png";
 
 const GEMINI_SUPPORTED_RATIOS = ["1:1", "1:4", "1:8", "2:3", "3:2", "3:4", "4:1", "4:3", "4:5", "5:4", "8:1", "9:16", "16:9", "21:9"];
 const GEMINI_IMAGE_SIZE_BY_QUALITY: Record<string, string> = { low: "1K", medium: "2K", high: "4K", standard: "1K", hd: "2K" };
+const UNIART_SEMANTIC_IMAGE_MODELS = new Set(["gpt-image-2-special", "nano-banana-2-special"]);
 
 function normalizeQuality(quality: string) {
     const value = quality.trim().toLowerCase();
     const normalized = QUALITY_ALIASES[value] || value;
     return QUALITY_BASE[normalized] ? normalized : undefined;
+}
+
+function resolveUniArtSemanticImageOutput(model: string, quality: string, size: string) {
+    if (!UNIART_SEMANTIC_IMAGE_MODELS.has(model.trim().toLowerCase())) return null;
+    const normalizedQuality = normalizeQuality(quality);
+    const resolution = normalizedQuality === "medium" || normalizedQuality === "hd" ? "2k" : normalizedQuality === "high" ? "4k" : "1k";
+    const dimensions = parseImageDimensions(size.trim());
+    const aspectRatio = dimensions ? reduceImageRatio(dimensions.width, dimensions.height) : size.trim().toLowerCase() === "auto" || !size.trim() ? "1:1" : normalizeImageRatio(size);
+    return { resolution, aspect_ratio: aspectRatio };
+}
+
+function normalizeImageRatio(value: string) {
+    const ratio = parseImageRatio(value);
+    return `${ratio.width}:${ratio.height}`;
+}
+
+function reduceImageRatio(width: number, height: number) {
+    let a = Math.abs(Math.round(width));
+    let b = Math.abs(Math.round(height));
+    while (b) {
+        const remainder = a % b;
+        a = b;
+        b = remainder;
+    }
+    const divisor = a || 1;
+    return `${Math.round(width) / divisor}:${Math.round(height) / divisor}`;
 }
 
 /** Only "transparent" is forwarded; any other value (incl. empty) means keep the default opaque background. */
@@ -230,17 +261,26 @@ function supportsGeminiImageSize(model: string) {
     return value.includes("gemini-3") || value.includes("3.1") || value.includes("3-pro");
 }
 
-function resolveImageDataUrl(item: Record<string, unknown>) {
+async function resolveImageDataUrl(item: Record<string, unknown>, config: AiConfig, options?: RequestOptions) {
     if (typeof item.b64_json === "string" && item.b64_json) {
         return `data:image/png;base64,${item.b64_json}`;
     }
     if (typeof item.url === "string" && item.url) {
+        if (isProtectedUniArtImageUrl(item.url, config.baseUrl)) {
+            const response = await axios.get<Blob>(new URL(item.url, buildApiUrl(config.baseUrl, "/")).toString(), {
+                headers: aiHeaders(config),
+                responseType: "blob",
+                signal: options?.signal,
+            });
+            return blobToDataUrl(response.data);
+        }
         return item.url;
     }
     return null;
 }
 
-function parseImagePayload(payload: ImageApiResponse) {
+async function parseImagePayload(payload: ImageApiResponse, config: AiConfig, options?: RequestOptions) {
+    payload = await resolveTerminalImagePayload(payload, config, options);
     if (typeof payload.code === "number" && payload.code !== 0) {
         throw new Error(payload.msg || "请求失败");
     }
@@ -249,11 +289,8 @@ function parseImagePayload(payload: ImageApiResponse) {
         || (payload as Record<string, unknown>).images as Array<Record<string, unknown>> | undefined
         || (payload as Record<string, unknown>).results as Array<Record<string, unknown>> | undefined
         || [];
-    const images =
-        imageList
-            .map(resolveImageDataUrl)
-            .filter((value): value is string => Boolean(value))
-            .map((dataUrl) => ({ id: nanoid(), dataUrl }));
+    const resolvedImages = await Promise.all(imageList.map((item) => resolveImageDataUrl(item, config, options)));
+    const images = resolvedImages.filter((value): value is string => Boolean(value)).map((dataUrl) => ({ id: nanoid(), dataUrl }));
 
     if (images.length === 0) {
         // 尝试检查是否有返回了但格式不被识别的数据
@@ -264,6 +301,63 @@ function parseImagePayload(payload: ImageApiResponse) {
     }
 
     return images;
+}
+
+async function resolveTerminalImagePayload(payload: ImageApiResponse, config: AiConfig, options?: RequestOptions) {
+    const taskId = typeof payload.task_id === "string" ? payload.task_id.trim() : "";
+    if (!taskId) return payload;
+    let current = payload;
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+        const status = String(current.status || "").trim().toLowerCase();
+        if (["completed", "succeeded", "success"].includes(status)) return current;
+        if (["failed", "failure", "cancelled", "canceled"].includes(status)) {
+            throw new Error(readApiErrorMessage(current) || "图片生成失败");
+        }
+        await waitForImageTask(5000, options?.signal);
+        const response = await axios.get<ImageApiResponse>(aiApiUrl(config, `/images/${encodeURIComponent(taskId)}`), {
+            headers: aiHeaders(config),
+            signal: options?.signal,
+        });
+        current = response.data;
+    }
+    throw new Error("图片生成等待超时，请稍后重新查询任务");
+}
+
+function isProtectedUniArtImageUrl(value: string, baseUrl: string) {
+    try {
+        const apiOrigin = new URL(buildApiUrl(baseUrl, "/")).origin;
+        const resultUrl = new URL(value, buildApiUrl(baseUrl, "/"));
+        return resultUrl.origin === apiOrigin && /^\/v1\/images\/[^/]+\/content$/.test(resultUrl.pathname);
+    } catch {
+        return false;
+    }
+}
+
+function blobToDataUrl(blob: Blob) {
+    return new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(reader.error || new Error("读取图片结果失败"));
+        reader.readAsDataURL(blob);
+    });
+}
+
+function waitForImageTask(milliseconds: number, signal?: AbortSignal) {
+    return new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) {
+            reject(new DOMException("Aborted", "AbortError"));
+            return;
+        }
+        const onAbort = () => {
+            window.clearTimeout(timeout);
+            reject(new DOMException("Aborted", "AbortError"));
+        };
+        const timeout = window.setTimeout(() => {
+            signal?.removeEventListener("abort", onAbort);
+            resolve();
+        }, milliseconds);
+        signal?.addEventListener("abort", onAbort, { once: true });
+    });
 }
 
 function readApiErrorMessage(value: unknown): string {
@@ -740,8 +834,9 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
             throw new Error(readAxiosError(error, "请求失败"));
         }
     }
-    const quality = normalizeQuality(config.quality);
-    const requestSize = resolveRequestSize(quality, config.size);
+    const semanticOutput = resolveUniArtSemanticImageOutput(requestConfig.model, config.quality, config.size);
+    const quality = semanticOutput ? undefined : normalizeQuality(config.quality);
+    const requestSize = semanticOutput ? undefined : resolveRequestSize(quality, config.size);
     const background = normalizeBackground(config.background);
     try {
         const response = await axios.post<ImageApiResponse>(
@@ -752,6 +847,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 n,
                 ...(quality ? { quality } : {}),
                 ...(requestSize ? { size: requestSize } : {}),
+                ...(semanticOutput || {}),
                 ...(background ? { background } : {}),
                 response_format: "b64_json",
                 output_format: IMAGE_OUTPUT_FORMAT,
@@ -761,7 +857,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
                 signal: options?.signal,
             },
         );
-        const images = parseImagePayload(response.data);
+        const images = await parseImagePayload(response.data, requestConfig, options);
         return images;
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
@@ -827,14 +923,15 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
                     signal: options?.signal,
                 },
             );
-            return parseImagePayload(response.data);
+            return await parseImagePayload(response.data, requestConfig, options);
         } catch (error) {
             throw new Error(readAxiosError(error, "请求失败"));
         }
     }
 
-    const quality = normalizeQuality(config.quality);
-    const requestSize = resolveRequestSize(quality, config.size);
+    const semanticOutput = resolveUniArtSemanticImageOutput(requestConfig.model, config.quality, config.size);
+    const quality = semanticOutput ? undefined : normalizeQuality(config.quality);
+    const requestSize = semanticOutput ? undefined : resolveRequestSize(quality, config.size);
     const background = normalizeBackground(config.background);
     const formData = new FormData();
     formData.set("model", requestConfig.model);
@@ -848,6 +945,10 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     if (requestSize) {
         formData.set("size", requestSize);
     }
+    if (semanticOutput) {
+        formData.set("resolution", semanticOutput.resolution);
+        formData.set("aspect_ratio", semanticOutput.aspect_ratio);
+    }
     if (background) {
         formData.set("background", background);
     }
@@ -857,7 +958,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
 
     try {
         const response = await axios.post<ImageApiResponse>(aiApiUrl(requestConfig, "/images/edits"), formData, { headers: aiHeaders(requestConfig), signal: options?.signal });
-        const images = parseImagePayload(response.data);
+        const images = await parseImagePayload(response.data, requestConfig, options);
         return images;
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
@@ -927,7 +1028,15 @@ export async function fetchImageModels(config: Pick<AiConfig, "baseUrl" | "apiKe
 type ApiModel = {
     id?: string;
     supported_endpoint_types?: string[];
-    video_capability?: { modes?: Array<{ id?: string; input_types?: string[] }> };
+    video_capability?: {
+        modes?: Array<{ id?: string; input_types?: string[] }>;
+        resolutions?: string[];
+        ratios?: string[];
+        durations?: number[];
+        default_resolution?: string;
+        default_ratio?: string;
+        default_duration?: number;
+    };
 };
 
 function channelModelFromApiModel(model: ApiModel): ChannelModel | null {
@@ -937,6 +1046,12 @@ function channelModelFromApiModel(model: ApiModel): ChannelModel | null {
     const capability: ModelCapability = endpoints.includes("openai-video") ? "video" : endpoints.includes("image-generation") ? "image" : guessCapability(name);
     const videoCapability = normalizeVideoCapability({
         modes: (model.video_capability?.modes || []).map((mode) => ({ id: mode.id as VideoCapabilityModeId, inputTypes: (mode.input_types || []) as VideoCapability["modes"][number]["inputTypes"] })),
+        resolutions: model.video_capability?.resolutions,
+        ratios: model.video_capability?.ratios,
+        durations: model.video_capability?.durations,
+        defaultResolution: model.video_capability?.default_resolution,
+        defaultRatio: model.video_capability?.default_ratio,
+        defaultDuration: model.video_capability?.default_duration,
     });
     return { name, capability, videoCapability };
 }

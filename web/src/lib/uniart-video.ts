@@ -18,9 +18,12 @@ const CLIENT_MEDIA_UPLOAD_CEILING = 10;
 
 export function resolveUniArtVideoParams(capability: UniArtVideoCapability, values: { seconds?: string; ratio?: string; resolution?: string }) {
     const requestedDuration = Math.floor(Number(values.seconds));
-    const seconds = Math.max(4, Math.min(15, Number.isFinite(requestedDuration) ? requestedDuration : 6));
-    const ratio = normalizeRatio(values.ratio || "") || "16:9";
-    const resolution = normalizeResolution(values.resolution || "") || "720p";
+    const fallbackSeconds = Math.max(4, Math.min(15, Number.isFinite(requestedDuration) ? requestedDuration : 6));
+    const seconds = capability.durations?.includes(requestedDuration) ? requestedDuration : capability.defaultDuration || capability.durations?.[0] || fallbackSeconds;
+    const requestedRatio = normalizeRatio(values.ratio || "") || "16:9";
+    const ratio = capability.ratios?.find((item) => item.toLowerCase() === requestedRatio.toLowerCase()) || capability.defaultRatio || capability.ratios?.[0] || requestedRatio;
+    const requestedResolution = normalizeResolution(values.resolution || "") || "720p";
+    const resolution = capability.resolutions?.find((item) => item.toLowerCase() === requestedResolution.toLowerCase()) || capability.defaultResolution || capability.resolutions?.[0] || requestedResolution;
     return { capability, seconds, ratio, resolution };
 }
 

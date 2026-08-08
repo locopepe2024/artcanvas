@@ -37,6 +37,11 @@ type SeedanceTask = {
 type ApiEnvelope<T> = T | { code?: number | string; data?: T | null; msg?: string; message?: string; error?: { message?: string } };
 type StoredVideoTask = { task_id?: string; status?: string; fail_reason?: string; result_url?: string; requires_auth?: boolean; content_type?: string };
 type RequestOptions = { signal?: AbortSignal };
+type UniArtOfficialContentPart =
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string }; role: "first_frame" | "last_frame" | "reference_image" }
+    | { type: "video_url"; video_url: { url: string }; role: "reference_video" }
+    | { type: "audio_url"; audio_url: { url: string }; role: "reference_audio" };
 
 export type VideoGenerationResult = { blob?: Blob; url?: string; model?: string; mimeType?: string; requiresAuth?: boolean };
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "plugin"; model: string };
@@ -191,9 +196,9 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
         if (submissionError) throw new Error(submissionError);
         const uniArtParams = resolveUniArtVideoParams(capability, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality });
         try {
-            const metadata = await buildUniArtVideoMetadata(config, uniArtParams.capability, uniArtParams.ratio, uniArtParams.resolution, references, videoReferences, audioReferences, options);
+            const body = await buildUniArtOfficialVideoRequest(config, requestModel, prompt, uniArtParams.capability, uniArtParams.seconds, uniArtParams.ratio, uniArtParams.resolution, references, videoReferences, audioReferences, options);
             const created = unwrapVideoResponse(
-                (await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), { model: requestModel, prompt, seconds: String(uniArtParams.seconds), metadata }, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data,
+                (await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data,
             );
             if (!created.id) throw new Error("视频接口没有返回任务 ID");
             return { id: created.id, provider: "openai", model };
@@ -222,9 +227,12 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     }
 }
 
-async function buildUniArtVideoMetadata(
+async function buildUniArtOfficialVideoRequest(
     config: AiConfig,
+    model: string,
+    prompt: string,
     capability: UniArtVideoCapability,
+    duration: number,
     ratio: string,
     resolution: string | undefined,
     references: ReferenceImage[],
@@ -234,16 +242,16 @@ async function buildUniArtVideoMetadata(
 ) {
     const limits = resolveUniArtReferenceLimits(capability, config.videoReferenceMode);
     const mode = limits.mode;
-    const outputMetadata = { ratio, ...(resolution ? { resolution } : {}), generate_audio: boolConfig(config.videoGenerateAudio, true) };
     const faceMode = boolConfig(config.videoFaceMode, false);
+    const generateAudio = boolConfig(config.videoGenerateAudio, true);
     if (mode === "text_to_video") {
         if (faceMode) throw new Error("人脸模式需要至少一张参考图片");
-        return outputMetadata;
+        return buildUniArtOfficialVideoRequestBody(model, prompt, duration, ratio, resolution, mode, [], [], [], generateAudio, faceMode);
     }
     const hasReferences = references.length + videoReferences.length + audioReferences.length > 0;
     if (!hasReferences) {
         if (faceMode) throw new Error("人脸模式需要至少一张参考图片");
-        return outputMetadata;
+        return buildUniArtOfficialVideoRequestBody(model, prompt, duration, ratio, resolution, mode, [], [], [], generateAudio, faceMode);
     }
     if (faceMode && !references.length) throw new Error("人脸模式需要至少一张参考图片");
     if (references.length > limits.maxImages) throw new Error("参考图片超过画布单次上传安全上限");
@@ -252,7 +260,8 @@ async function buildUniArtVideoMetadata(
     if (mode === "image_to_video" && references.length !== 1) throw new Error("图生视频模式需要且只能使用 1 张图片");
     if (mode === "image_reference" && !references.length) throw new Error("图片参考模式至少需要 1 张图片");
     if (mode === "first_last_frames" && (references.length !== 2 || videoReferences.length || audioReferences.length)) throw new Error("首尾帧模式需要且只能使用 2 张图片，第 1 张为首帧，第 2 张为尾帧");
-    if (videoReferences.some((item) => !item.durationMs || item.durationMs <= 0)) throw new Error("参考视频缺少可读取的时长，请重新上传视频文件");
+    const inputVideoDurationMs = videoReferences.reduce((total, item) => total + Math.max(0, item.durationMs || 0), 0);
+    if (inputVideoDurationMs > 15000) throw new Error("参考视频总时长不能超过 15 秒");
 
     const [imageURLs, videoURLs, audioURLs] = await Promise.all([
         Promise.all(references.map(async (image) => uploadCanvasVideoAsset(await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) }), options))),
@@ -260,16 +269,56 @@ async function buildUniArtVideoMetadata(
         Promise.all(audioReferences.map(async (audio) => uploadCanvasVideoAsset(await referenceMediaFile(audio), options))),
     ]);
 
-    if (mode === "first_last_frames") return { ...outputMetadata, mode: "frames", first_frame_url: imageURLs[0], last_frame_url: imageURLs[1], ...(faceMode ? { face_mode: true } : {}) };
+    return buildUniArtOfficialVideoRequestBody(model, prompt, duration, ratio, resolution, mode, imageURLs, videoURLs, audioURLs, generateAudio, faceMode);
+}
+
+function buildUniArtOfficialVideoRequestBody(
+    model: string,
+    prompt: string,
+    duration: number,
+    ratio: string,
+    resolution: string | undefined,
+    mode: ReturnType<typeof resolveUniArtReferenceLimits>["mode"],
+    imageURLs: string[],
+    videoURLs: string[],
+    audioURLs: string[],
+    generateAudio: boolean,
+    faceMode: boolean,
+) {
     return {
-        ...outputMetadata,
-        mode: "references",
+        model,
+        content: buildUniArtOfficialContent(prompt, mode, imageURLs, videoURLs, audioURLs),
+        duration,
+        ...(resolution ? { resolution } : {}),
+        ratio,
+        generate_audio: generateAudio,
+        return_last_frame: false,
         ...(faceMode ? { face_mode: true } : {}),
-        image_urls: imageURLs,
-        video_urls: videoURLs,
-        audio_urls: audioURLs,
-        ...(videoURLs.length ? { input_video_duration: Math.ceil(videoReferences.reduce((total, item) => total + (item.durationMs || 0), 0) / 1000) } : {}),
     };
+}
+
+export function buildUniArtOfficialContent(
+    prompt: string,
+    mode: ReturnType<typeof resolveUniArtReferenceLimits>["mode"],
+    imageURLs: string[],
+    videoURLs: string[],
+    audioURLs: string[],
+): UniArtOfficialContentPart[] {
+    const content: UniArtOfficialContentPart[] = [];
+    if (prompt.trim()) content.push({ type: "text", text: prompt.trim() });
+    if (mode === "first_last_frames") {
+        if (imageURLs[0]) content.push({ type: "image_url", image_url: { url: imageURLs[0] }, role: "first_frame" });
+        if (imageURLs[1]) content.push({ type: "image_url", image_url: { url: imageURLs[1] }, role: "last_frame" });
+        return content;
+    }
+    if (mode === "image_to_video") {
+        if (imageURLs[0]) content.push({ type: "image_url", image_url: { url: imageURLs[0] }, role: "first_frame" });
+        return content;
+    }
+    imageURLs.forEach((url) => content.push({ type: "image_url", image_url: { url }, role: "reference_image" }));
+    videoURLs.forEach((url) => content.push({ type: "video_url", video_url: { url }, role: "reference_video" }));
+    audioURLs.forEach((url) => content.push({ type: "audio_url", audio_url: { url }, role: "reference_audio" }));
+    return content;
 }
 
 async function uploadCanvasVideoAsset(file: File, options?: RequestOptions) {
@@ -288,8 +337,8 @@ async function referenceMediaFile(reference: ReferenceVideo | ReferenceAudio) {
 
 function genericVideoPixelSize(resolution: string, ratio: string) {
     const tier = normalizeVideoResolution(resolution).toLowerCase().replace(/p$/, "");
-    const long = tier === "4k" ? 3840 : tier === "1080" ? 1920 : tier === "480" ? 854 : 1280;
-    const short = tier === "4k" ? 2160 : tier === "1080" ? 1080 : tier === "480" ? 480 : 720;
+    const long = tier === "4k" ? 3840 : tier === "1440" || tier === "2k" ? 2560 : tier === "1080" ? 1920 : tier === "480" ? 854 : 1280;
+    const short = tier === "4k" ? 2160 : tier === "1440" || tier === "2k" ? 1440 : tier === "1080" ? 1080 : tier === "480" ? 480 : 720;
     const normalizedRatio = ["16:9", "9:16", "1:1", "4:3", "3:4"].includes(ratio) ? ratio : "16:9";
     if (normalizedRatio === "9:16") return `${short}x${long}`;
     if (normalizedRatio === "1:1") return `${short}x${short}`;
