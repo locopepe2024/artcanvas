@@ -393,12 +393,17 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
         if (video.status === "failed" || video.status === "cancelled") return { status: "failed", error: readApiErrorMessage(video.error?.message) || "视频生成失败" };
         return { status: "pending" };
     } catch (error) {
-        if (!axios.isCancel(error) && !options?.signal?.aborted && axios.isAxiosError(error) && (error.response?.status || 0) >= 500) {
+        const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+        if (shouldReconcileStoredVideoTaskQuery(status, axios.isCancel(error), options?.signal?.aborted)) {
             const storedState = await pollStoredVideoTask(config, task, options);
             if (storedState) return storedState;
         }
         throw new Error(readAxiosError(error, "视频任务查询失败"));
     }
+}
+
+export function shouldReconcileStoredVideoTaskQuery(status?: number, canceled = false, aborted = false) {
+    return !canceled && !aborted && status !== 401 && status !== 403;
 }
 
 async function pollStoredVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState | null> {
