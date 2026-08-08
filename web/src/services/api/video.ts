@@ -168,7 +168,7 @@ export async function storeGeneratedVideo(result: VideoGenerationResult, config?
             if (!config) throw new Error("视频已生成，但缺少下载鉴权配置");
             try {
                 const requestConfig = videoDownloadRequestConfig(config, result);
-                const content = await downloadAuthenticatedVideo(result.url, requestConfig, options);
+                const content = await downloadAuthenticatedVideo(authenticatedVideoDownloadUrl(requestConfig, result.url), requestConfig, options);
                 await assertVideoBlob(content.data);
                 return await uploadMediaFile(content.data, "video");
             } catch (error) {
@@ -196,6 +196,16 @@ function videoDownloadRequestConfig(config: AiConfig, result: VideoGenerationRes
     if (result.channelId) return resolveModelRequestConfig(config, encodeChannelModel(result.channelId, modelOptionName(result.model || configuredModel)));
     const explicitModel = [result.model, configuredModel].find((model) => model && isChannelModelValue(model));
     return explicitModel ? resolveModelRequestConfig(config, explicitModel) : config;
+}
+
+function authenticatedVideoDownloadUrl(config: AiConfig, resultUrl: string) {
+    try {
+        const target = new URL(resultUrl, buildApiUrl(config.baseUrl, "/"));
+        if (!/\/videos\/[^/]+\/content\/?$/i.test(target.pathname)) return target.toString();
+        return new URL(`${target.pathname}${target.search}`, new URL(buildApiUrl(config.baseUrl, "/")).origin).toString();
+    } catch {
+        return resultUrl;
+    }
 }
 
 async function downloadAuthenticatedVideo(url: string, config: AiConfig, options?: RequestOptions) {
