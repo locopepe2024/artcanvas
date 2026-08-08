@@ -6,7 +6,7 @@ import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/fil
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { resolveUniArtReferenceLimits, resolveUniArtVideoParams, uniArtVideoSubmissionError, type UniArtVideoCapability } from "@/lib/uniart-video";
-import { buildApiUrl, isChannelModelValue, modelCapabilityOf, modelOptionName, normalizeModelOptionValue, resolveModelRequestConfig, resolveModelScript, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, decodeChannelModel, encodeChannelModel, isChannelModelValue, modelCapabilityOf, modelOptionName, normalizeModelOptionValue, resolveModelRequestConfig, resolveModelScript, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -43,8 +43,8 @@ type UniArtOfficialContentPart =
     | { type: "video_url"; video_url: { url: string }; role: "reference_video" }
     | { type: "audio_url"; audio_url: { url: string }; role: "reference_audio" };
 
-export type VideoGenerationResult = { blob?: Blob; url?: string; model?: string; mimeType?: string; requiresAuth?: boolean };
-export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "plugin"; model: string };
+export type VideoGenerationResult = { blob?: Blob; url?: string; model?: string; channelId?: string; mimeType?: string; requiresAuth?: boolean };
+export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "plugin"; model: string; channelId?: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
 /** Results for scripted (plugin) video models, which run their own create+poll in one shot at task creation. */
@@ -115,7 +115,8 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
         return result ? { status: "completed", result } : { status: "failed", error: "插件视频任务已失效，请重新生成" };
     }
     const model = normalizeModelOptionValue(task.model, config.channels) || task.model;
-    const resolvedTask = model === task.model ? task : { ...task, model };
+    const channelId = task.channelId || decodeChannelModel(model)?.channelId;
+    const resolvedTask = model === task.model && channelId === task.channelId ? task : { ...task, model, ...(channelId ? { channelId } : {}) };
     const requestConfig = resolveModelRequestConfig(config, model);
     assertVideoConfig(requestConfig, requestConfig.model);
     return task.provider === "seedance" ? pollSeedanceTask(requestConfig, resolvedTask, options) : pollOpenAIVideoTask(requestConfig, resolvedTask, options);
@@ -166,10 +167,7 @@ export async function storeGeneratedVideo(result: VideoGenerationResult, config?
         if (result.requiresAuth) {
             if (!config) throw new Error("视频已生成，但缺少下载鉴权配置");
             try {
-                const configuredModel = (config.model || config.videoModel).trim();
-                const resultModel = result.model?.trim();
-                const downloadModel = resultModel && !isChannelModelValue(resultModel) && isChannelModelValue(configuredModel) && modelOptionName(configuredModel) === resultModel ? configuredModel : resultModel;
-                const requestConfig = downloadModel ? resolveModelRequestConfig(config, downloadModel) : config;
+                const requestConfig = videoDownloadRequestConfig(config, result);
                 const content = await downloadAuthenticatedVideo(result.url, requestConfig, options);
                 await assertVideoBlob(content.data);
                 return await uploadMediaFile(content.data, "video");
@@ -191,6 +189,13 @@ export async function storeGeneratedVideo(result: VideoGenerationResult, config?
         }
     }
     throw new Error("视频接口没有返回可播放的视频");
+}
+
+function videoDownloadRequestConfig(config: AiConfig, result: VideoGenerationResult) {
+    const configuredModel = (config.model || config.videoModel).trim();
+    if (result.channelId) return resolveModelRequestConfig(config, encodeChannelModel(result.channelId, modelOptionName(result.model || configuredModel)));
+    const explicitModel = [result.model, configuredModel].find((model) => model && isChannelModelValue(model));
+    return explicitModel ? resolveModelRequestConfig(config, explicitModel) : config;
 }
 
 async function downloadAuthenticatedVideo(url: string, config: AiConfig, options?: RequestOptions) {
@@ -221,7 +226,7 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
                 (await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data,
             );
             if (!created.id) throw new Error("视频接口没有返回任务 ID");
-            return { id: created.id, provider: "openai", model };
+            return { id: created.id, provider: "openai", model, channelId: decodeChannelModel(model)?.channelId };
         } catch (error) {
             throw new Error(readAxiosError(error, "视频任务创建失败"));
         }
@@ -241,7 +246,7 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     try {
         const created = unwrapVideoResponse((await axios.post<ApiVideoResponse>(aiApiUrl(config, "/videos"), body, { headers: aiHeaders(config), signal: options?.signal })).data);
         if (!created.id) throw new Error("视频接口没有返回任务 ID");
-        return { id: created.id, provider: "openai", model };
+        return { id: created.id, provider: "openai", model, channelId: decodeChannelModel(model)?.channelId };
     } catch (error) {
         throw new Error(readAxiosError(error, "视频任务创建失败"));
     }
@@ -371,9 +376,9 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
     try {
         const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
         const url = videoResultUrl(video);
-        if (url) return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, url, video.requires_auth, video.content_type) };
+        if (url) return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, task.channelId, url, video.requires_auth, video.content_type) };
         if (video.status === "completed") {
-            return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, aiApiUrl(config, `/videos/${task.id}/content`), true, "video/mp4") };
+            return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, task.channelId, aiApiUrl(config, `/videos/${task.id}/content`), true, "video/mp4") };
         }
         if (video.status === "failed" || video.status === "cancelled") return { status: "failed", error: readApiErrorMessage(video.error?.message) || "视频生成失败" };
         return { status: "pending" };
@@ -394,7 +399,7 @@ async function pollStoredVideoTask(config: AiConfig, task: VideoGenerationTask, 
         if (status === "SUCCESS") {
             const resultUrl = payload.data.result_url?.trim();
             if (!resultUrl) return { status: "failed", error: "视频任务已完成，但持久任务记录没有结果地址" };
-            return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, resultUrl, payload.data.requires_auth, payload.data.content_type) };
+            return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, task.channelId, resultUrl, payload.data.requires_auth, payload.data.content_type) };
         }
         if (status === "FAILURE") return { status: "failed", error: payload.data.fail_reason || "视频生成失败" };
         return { status: "pending" };
@@ -413,9 +418,9 @@ function resolveStoredVideoResultUrl(config: AiConfig, resultUrl: string) {
     }
 }
 
-function resolveOpenAIVideoResult(config: AiConfig, model: string, resultUrl: string, requiresAuth: boolean | undefined, contentType = "video/mp4"): VideoGenerationResult {
+function resolveOpenAIVideoResult(config: AiConfig, model: string, channelId: string | undefined, resultUrl: string, requiresAuth: boolean | undefined, contentType = "video/mp4"): VideoGenerationResult {
     const resolvedUrl = resolveStoredVideoResultUrl(config, resultUrl);
-    return { url: resolvedUrl, model, requiresAuth: requiresAuth ?? isAuthenticatedVideoContentUrl(config, resolvedUrl), mimeType: contentType || "video/mp4" };
+    return { url: resolvedUrl, model, ...(channelId ? { channelId } : {}), requiresAuth: requiresAuth ?? isAuthenticatedVideoContentUrl(config, resolvedUrl), mimeType: contentType || "video/mp4" };
 }
 
 function isAuthenticatedVideoContentUrl(config: AiConfig, resultUrl: string) {
@@ -449,7 +454,7 @@ async function createSeedanceTask(config: AiConfig, model: string, prompt: strin
     try {
         const created = unwrapSeedanceTask((await axios.post<ApiEnvelope<SeedanceTask>>(seedanceApiUrl(config), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
         if (!created.id) throw new Error("Seedance 接口没有返回任务 ID");
-        return { id: created.id, provider: "seedance", model };
+        return { id: created.id, provider: "seedance", model, channelId: decodeChannelModel(model)?.channelId };
     } catch (error) {
         throw new Error(readAxiosError(error, "Seedance 任务创建失败"));
     }
