@@ -6,7 +6,7 @@ import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/fil
 import { imageToDataUrl } from "@/services/image-storage";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { resolveUniArtReferenceLimits, resolveUniArtVideoParams, uniArtVideoSubmissionError, type UniArtVideoCapability } from "@/lib/uniart-video";
-import { buildApiUrl, modelCapabilityOf, modelOptionName, resolveModelRequestConfig, resolveModelScript, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, isChannelModelValue, modelCapabilityOf, modelOptionName, normalizeModelOptionValue, resolveModelRequestConfig, resolveModelScript, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
@@ -94,7 +94,8 @@ export function isRetryableVideoTaskQueryError(error: unknown) {
 }
 
 export async function createVideoGenerationTask(config: AiConfig, prompt: string, references: ReferenceImage[] = [], videoReferences: ReferenceVideo[] = [], audioReferences: ReferenceAudio[] = [], options?: RequestOptions): Promise<VideoGenerationTask> {
-    const selectedModel = (config.model || config.videoModel).trim();
+    const configuredModel = (config.model || config.videoModel).trim();
+    const selectedModel = normalizeModelOptionValue(configuredModel, config.channels) || configuredModel;
     const requestConfig = resolveModelRequestConfig(config, selectedModel);
     const script = resolveModelScript(config, selectedModel);
     if (script) return createPluginVideoTask(requestConfig, selectedModel, script, prompt, references, options);
@@ -113,9 +114,11 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
         const result = pluginVideoResults.get(task.id);
         return result ? { status: "completed", result } : { status: "failed", error: "插件视频任务已失效，请重新生成" };
     }
-    const requestConfig = resolveModelRequestConfig(config, task.model);
+    const model = normalizeModelOptionValue(task.model, config.channels) || task.model;
+    const resolvedTask = model === task.model ? task : { ...task, model };
+    const requestConfig = resolveModelRequestConfig(config, model);
     assertVideoConfig(requestConfig, requestConfig.model);
-    return task.provider === "seedance" ? pollSeedanceTask(requestConfig, task, options) : pollOpenAIVideoTask(requestConfig, task, options);
+    return task.provider === "seedance" ? pollSeedanceTask(requestConfig, resolvedTask, options) : pollOpenAIVideoTask(requestConfig, resolvedTask, options);
 }
 
 async function createPluginVideoTask(config: AiConfig, model: string, script: string, prompt: string, references: ReferenceImage[], options?: RequestOptions): Promise<VideoGenerationTask> {
@@ -163,8 +166,11 @@ export async function storeGeneratedVideo(result: VideoGenerationResult, config?
         if (result.requiresAuth) {
             if (!config) throw new Error("视频已生成，但缺少下载鉴权配置");
             try {
-                const requestConfig = result.model ? resolveModelRequestConfig(config, result.model) : config;
-                const content = await axios.get<Blob>(result.url, { headers: aiHeaders(requestConfig), responseType: "blob", signal: options?.signal, timeout: 120000 });
+                const configuredModel = (config.model || config.videoModel).trim();
+                const resultModel = result.model?.trim();
+                const downloadModel = resultModel && !isChannelModelValue(resultModel) && isChannelModelValue(configuredModel) && modelOptionName(configuredModel) === resultModel ? configuredModel : resultModel;
+                const requestConfig = downloadModel ? resolveModelRequestConfig(config, downloadModel) : config;
+                const content = await downloadAuthenticatedVideo(result.url, requestConfig, options);
                 await assertVideoBlob(content.data);
                 return await uploadMediaFile(content.data, "video");
             } catch (error) {
@@ -185,6 +191,20 @@ export async function storeGeneratedVideo(result: VideoGenerationResult, config?
         }
     }
     throw new Error("视频接口没有返回可播放的视频");
+}
+
+async function downloadAuthenticatedVideo(url: string, config: AiConfig, options?: RequestOptions) {
+    const deadline = Date.now() + 120000;
+    let retryDelayMs = 1000;
+    while (true) {
+        try {
+            return await axios.get<Blob>(url, { headers: aiHeaders(config), responseType: "blob", signal: options?.signal, timeout: 120000 });
+        } catch (error) {
+            if (axios.isCancel(error) || options?.signal?.aborted || !axios.isAxiosError(error) || error.response?.status !== 503 || Date.now() + retryDelayMs > deadline) throw error;
+            await delay(retryDelayMs, options?.signal);
+            retryDelayMs = Math.min(10000, retryDelayMs * 2);
+        }
+    }
 }
 
 async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
