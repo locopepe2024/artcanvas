@@ -12,7 +12,7 @@ import { VideoReferenceModeSelector, VideoSettingsPanel, normalizeVideoRatioValu
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS, SEEDANCE_VIDEO_MIME_TYPES } from "@/lib/seedance-video";
-import { resolveUniArtReferenceLimits, uniArtVideoSubmissionError } from "@/lib/uniart-video";
+import { preferredUniArtImageReferenceMode, resolveUniArtReferenceLimits, uniArtVideoSubmissionError } from "@/lib/uniart-video";
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { createVideoGenerationTask, isRetryableVideoTaskQueryError, storeGeneratedVideo, waitForVideoGenerationTask, type VideoGenerationTask } from "@/services/api/video";
@@ -124,6 +124,7 @@ export default function VideoPage() {
     const referenceLimits = uniArtCapability
         ? resolveUniArtReferenceLimits(uniArtCapability, effectiveConfig.videoReferenceMode)
         : { mode: "image_reference" as const, maxImages: seedance ? SEEDANCE_REFERENCE_LIMITS.images : 0, maxVideos: seedance ? SEEDANCE_REFERENCE_LIMITS.videos : 0, maxAudios: seedance ? SEEDANCE_REFERENCE_LIMITS.audios : 0 };
+    const alternateImageReferenceMode = uniArtCapability && !referenceLimits.maxImages ? preferredUniArtImageReferenceMode(uniArtCapability) : null;
     const imageReferenceTitle = referenceLimits.mode === "first_last_frames" ? "首尾帧" : referenceLimits.mode === "image_to_video" ? "图生视频参考图" : "参考图";
     const imageReferenceHint =
         referenceLimits.mode === "first_last_frames"
@@ -170,6 +171,12 @@ export default function VideoPage() {
             fileInputRef.current.accept = target === "image" ? "image/*" : target === "video" ? "video/mp4,video/quicktime" : "audio/mpeg,audio/wav,audio/x-wav,.mp3,.wav";
             fileInputRef.current.click();
         }
+    };
+
+    const switchAndUploadImageReference = () => {
+        if (!alternateImageReferenceMode) return;
+        updateConfig("videoReferenceMode", alternateImageReferenceMode);
+        openReferenceUpload("image");
     };
 
     const addReferences = async (files?: FileList | null, target: "all" | "image" | "video" | "audio" = "all") => {
@@ -455,7 +462,7 @@ export default function VideoPage() {
         }
     };
 
-    const pollGenerationLog = async (log: GenerationLog, configOverride?: AiConfig, agentTaskId?: string, notifyFailure = true) => {
+    const pollGenerationLog = async (log: GenerationLog, configOverride?: AiConfig, agentTaskId?: string, presentResult = true) => {
         if (!log.task || activeLogIdsRef.current.has(log.id)) return;
         const task = log.task;
         claimVideoLogRecovery(attemptedLogRecoveryRef.current, log.id, task.id);
@@ -463,9 +470,11 @@ export default function VideoPage() {
         const taskConfig = buildVideoConfig({ ...latestConfig, ...log.config }, task.model || log.model);
         if (!isAiConfigReady(configOverride || taskConfig, (configOverride || taskConfig).model)) return;
         activeLogIdsRef.current.add(log.id);
-        setRunning(true);
-        setStartedAt((value) => value || performance.now());
-        setResults((value) => (value.length ? value : [{ id: log.id, status: "pending" }]));
+        if (presentResult) {
+            setRunning(true);
+            setStartedAt((value) => value || performance.now());
+            setResults([{ id: log.id, status: "pending" }]);
+        }
         try {
             if (isRecoverablePollingFailure(log)) {
                 log = { ...log, status: "生成中", error: undefined };
@@ -483,19 +492,19 @@ export default function VideoPage() {
                 bytes: stored.bytes,
                 mimeType: stored.mimeType,
             };
-            setResults([{ id: nextVideo.id, status: "success", video: nextVideo }]);
+            if (presentResult) setResults([{ id: nextVideo.id, status: "success", video: nextVideo }]);
             if (agentTaskId) updateAgentTask(agentTaskId, { status: "succeeded", successCount: 1, failCount: 0, error: undefined });
             await saveLog({ ...log, status: "成功", durationMs: nextVideo.durationMs, video: nextVideo, error: undefined }, false);
-            message.success("视频已生成");
+            if (presentResult) message.success("视频已生成");
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "生成失败";
-            setResults([{ id: log.id, status: "failed", error: errorMessage }]);
+            if (presentResult) setResults([{ id: log.id, status: "failed", error: errorMessage }]);
             if (agentTaskId) updateAgentTask(agentTaskId, { status: "failed", successCount: 0, failCount: 1, error: errorMessage });
             await saveLog({ ...log, status: "失败", durationMs: Date.now() - log.createdAt, error: errorMessage }, false);
-            if (notifyFailure) message.error(errorMessage);
+            if (presentResult) message.error(errorMessage);
         } finally {
             activeLogIdsRef.current.delete(log.id);
-            if (!activeLogIdsRef.current.size) {
+            if (presentResult) {
                 setRunning(false);
                 setStartedAt(0);
             }
@@ -639,7 +648,14 @@ export default function VideoPage() {
                                     ))}
                                     {!references.length ? <div className="flex min-w-full items-center justify-center text-sm text-stone-500">{referenceDragTarget === "image" ? "松开即可上传参考图" : imageReferenceHint}</div> : null}
                                 </div>
-                            </div> : null}
+                            </div> : alternateImageReferenceMode ? (
+                                <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-stone-300 px-3 py-3 text-sm dark:border-stone-700">
+                                    <span className="text-stone-500 dark:text-stone-400">当前为文生视频模式，可切换到图片能力并上传参考图。</span>
+                                    <Button size="small" icon={<Upload className="size-3.5" />} onClick={switchAndUploadImageReference}>
+                                        切换并上传参考图
+                                    </Button>
+                                </div>
+                            ) : null}
 
                             {referenceLimits.maxVideos > 0 ? (
                                 <div className="min-w-0">

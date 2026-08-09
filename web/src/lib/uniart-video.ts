@@ -37,6 +37,11 @@ export function supportedUniArtReferenceModes(capability: UniArtVideoCapability)
     return modes;
 }
 
+export function preferredUniArtImageReferenceMode(capability: UniArtVideoCapability): UniArtVideoReferenceMode | null {
+    const modes = supportedUniArtReferenceModes(capability);
+    return (["image_reference", "image_to_video", "first_last_frames", "omni_reference"] as UniArtVideoReferenceMode[]).find((mode) => modes.includes(mode)) || null;
+}
+
 export function resolveUniArtReferenceMode(capability: UniArtVideoCapability, requested?: string): UniArtVideoReferenceMode {
     const modes = supportedUniArtReferenceModes(capability);
     return modes.includes(requested as UniArtVideoReferenceMode) ? (requested as UniArtVideoReferenceMode) : modes[0] || "image_reference";
