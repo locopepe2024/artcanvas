@@ -121,9 +121,7 @@ export default function VideoPage() {
     const model = effectiveConfig.videoModel || effectiveConfig.model;
     const uniArtCapability = videoCapabilityOf(effectiveConfig, model);
     const seedance = isSeedanceVideoConfig({ ...effectiveConfig, model });
-    const referenceLimits = uniArtCapability
-        ? resolveUniArtReferenceLimits(uniArtCapability, effectiveConfig.videoReferenceMode)
-        : { mode: "image_reference" as const, maxImages: seedance ? SEEDANCE_REFERENCE_LIMITS.images : 0, maxVideos: seedance ? SEEDANCE_REFERENCE_LIMITS.videos : 0, maxAudios: seedance ? SEEDANCE_REFERENCE_LIMITS.audios : 0 };
+    const referenceLimits = videoReferenceLimitsForConfig(effectiveConfig);
     const alternateImageReferenceMode = uniArtCapability && !referenceLimits.maxImages ? preferredUniArtImageReferenceMode(uniArtCapability) : null;
     const imageReferenceTitle = referenceLimits.mode === "first_last_frames" ? "首尾帧" : referenceLimits.mode === "image_to_video" ? "图生视频参考图" : "参考图";
     const imageReferenceHint =
@@ -181,44 +179,50 @@ export default function VideoPage() {
 
     const addReferences = async (files?: FileList | null, target: "all" | "image" | "video" | "audio" = "all") => {
         const selectedFiles = Array.from(files || []);
+        const latestConfig = { ...useConfigStore.getState().config, channelMode: "local" as const };
+        const latestLimits = videoReferenceLimitsForConfig(latestConfig);
         const unsupported = selectedFiles.filter((file) => !file.type.startsWith("image/") && !SEEDANCE_VIDEO_MIME_TYPES.includes(file.type) && !isSupportedAudioFile(file));
         if (unsupported.length) message.warning("已忽略不支持的参考资产，请使用图片、mp4/mov 视频或 mp3/wav 音频");
         const imageFiles =
-            target === "all" || target === "image" ? selectedFiles.filter((file) => file.type.startsWith("image/") && file.size <= SEEDANCE_REFERENCE_LIMITS.imageMaxBytes).slice(0, Math.max(0, referenceLimits.maxImages - references.length)) : [];
+            target === "all" || target === "image" ? selectedFiles.filter((file) => file.type.startsWith("image/") && file.size <= SEEDANCE_REFERENCE_LIMITS.imageMaxBytes).slice(0, Math.max(0, latestLimits.maxImages - references.length)) : [];
         const videoFiles =
             target === "all" || target === "video"
-                ? selectedFiles.filter((file) => SEEDANCE_VIDEO_MIME_TYPES.includes(file.type) && file.size <= SEEDANCE_REFERENCE_LIMITS.videoMaxBytes).slice(0, Math.max(0, referenceLimits.maxVideos - videoReferences.length))
+                ? selectedFiles.filter((file) => SEEDANCE_VIDEO_MIME_TYPES.includes(file.type) && file.size <= SEEDANCE_REFERENCE_LIMITS.videoMaxBytes).slice(0, Math.max(0, latestLimits.maxVideos - videoReferences.length))
                 : [];
         const audioFiles =
-            target === "all" || target === "audio" ? selectedFiles.filter((file) => isSupportedAudioFile(file) && file.size <= SEEDANCE_REFERENCE_LIMITS.audioMaxBytes).slice(0, Math.max(0, referenceLimits.maxAudios - audioReferences.length)) : [];
+            target === "all" || target === "audio" ? selectedFiles.filter((file) => isSupportedAudioFile(file) && file.size <= SEEDANCE_REFERENCE_LIMITS.audioMaxBytes).slice(0, Math.max(0, latestLimits.maxAudios - audioReferences.length)) : [];
         if (selectedFiles.some((file) => file.type.startsWith("image/") && file.size > SEEDANCE_REFERENCE_LIMITS.imageMaxBytes)) message.warning("已忽略超过 30MB 的参考图");
         if (selectedFiles.some((file) => SEEDANCE_VIDEO_MIME_TYPES.includes(file.type) && file.size > SEEDANCE_REFERENCE_LIMITS.videoMaxBytes)) message.warning("已忽略超过 200MB 的参考视频");
         if (selectedFiles.some((file) => isSupportedAudioFile(file) && file.size > SEEDANCE_REFERENCE_LIMITS.audioMaxBytes)) message.warning("已忽略超过 15MB 的参考音频");
-        const nextReferences = await Promise.all(
-            imageFiles.map(async (file) => {
-                const image = await uploadImage(file);
-                return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
-            }),
-        );
-        const nextVideoReferences = await Promise.all(
-            videoFiles.map(async (file) => {
-                const video = await uploadMediaFile(file, "video-reference");
-                return { id: nanoid(), name: file.name, type: video.mimeType, url: video.url, storageKey: video.storageKey, bytes: video.bytes, width: video.width, height: video.height, durationMs: video.durationMs };
-            }),
-        );
-        const nextAudioReferences = filterAudioReferencesByDuration(
-            audioReferences,
-            await Promise.all(
-                audioFiles.map(async (file) => {
-                    const audio = await uploadMediaFile(file, "audio-reference");
-                    return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, durationMs: audio.durationMs };
+        try {
+            const nextReferences = await Promise.all(
+                imageFiles.map(async (file) => {
+                    const image = await uploadImage(file);
+                    return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
                 }),
-            ),
-            message.warning,
-        );
-        setReferences((value) => [...value, ...nextReferences].slice(0, referenceLimits.maxImages));
-        setVideoReferences((value) => [...value, ...nextVideoReferences].slice(0, referenceLimits.maxVideos));
-        setAudioReferences((value) => [...value, ...nextAudioReferences].slice(0, referenceLimits.maxAudios));
+            );
+            const nextVideoReferences = await Promise.all(
+                videoFiles.map(async (file) => {
+                    const video = await uploadMediaFile(file, "video-reference");
+                    return { id: nanoid(), name: file.name, type: video.mimeType, url: video.url, storageKey: video.storageKey, bytes: video.bytes, width: video.width, height: video.height, durationMs: video.durationMs };
+                }),
+            );
+            const nextAudioReferences = filterAudioReferencesByDuration(
+                audioReferences,
+                await Promise.all(
+                    audioFiles.map(async (file) => {
+                        const audio = await uploadMediaFile(file, "audio-reference");
+                        return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, durationMs: audio.durationMs };
+                    }),
+                ),
+                message.warning,
+            );
+            setReferences((value) => [...value, ...nextReferences].slice(0, latestLimits.maxImages));
+            setVideoReferences((value) => [...value, ...nextVideoReferences].slice(0, latestLimits.maxVideos));
+            setAudioReferences((value) => [...value, ...nextAudioReferences].slice(0, latestLimits.maxAudios));
+        } catch (error) {
+            message.error(`参考素材上传失败：${error instanceof Error ? error.message : "请重新选择文件"}`);
+        }
     };
 
     const handleReferenceDragEnter = (event: DragEvent<HTMLDivElement>, target: "image" | "video" | "audio") => {
@@ -1192,6 +1196,14 @@ function buildVideoConfig(config: AiConfig, model: string): AiConfig {
         videoGenerateAudio: String(boolConfig(config.videoGenerateAudio, true)),
         videoWatermark: String(boolConfig(config.videoWatermark, false)),
     };
+}
+
+function videoReferenceLimitsForConfig(config: AiConfig) {
+    const model = config.videoModel || config.model;
+    const capability = videoCapabilityOf(config, model);
+    if (capability) return resolveUniArtReferenceLimits(capability, config.videoReferenceMode);
+    const seedance = isSeedanceVideoConfig({ ...config, model });
+    return { mode: "image_reference" as const, maxImages: seedance ? SEEDANCE_REFERENCE_LIMITS.images : 0, maxVideos: seedance ? SEEDANCE_REFERENCE_LIMITS.videos : 0, maxAudios: seedance ? SEEDANCE_REFERENCE_LIMITS.audios : 0 };
 }
 
 function normalizeVideoSeconds(value: string) {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { preferredUniArtImageReferenceMode } from "./uniart-video.ts";
+import { preferredUniArtImageReferenceMode, resolveUniArtReferenceLimits } from "./uniart-video.ts";
 
 describe("UniArt video reference mode selection", () => {
     test("offers an image-capable mode while text-to-video is selected", () => {
@@ -11,6 +11,8 @@ describe("UniArt video reference mode selection", () => {
             modes: [{ id: "text_to_video", inputTypes: ["text"] }, { id: "image_to_video", inputTypes: ["image"] }, { id: "omni_reference", inputTypes: ["image", "video", "audio"] }],
         };
         expect(preferredUniArtImageReferenceMode(capability)).toBe("image_to_video");
+        expect(resolveUniArtReferenceLimits(capability, "text_to_video").maxImages).toBe(0);
+        expect(resolveUniArtReferenceLimits(capability, "image_to_video").maxImages).toBe(1);
     });
 
     test("prefers image-reference when the model exposes it", () => {
