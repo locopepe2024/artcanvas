@@ -2,6 +2,7 @@ import localforage from "localforage";
 
 import { nanoid } from "nanoid";
 import { readImageMeta } from "@/lib/image-utils";
+import { persistBlobWithMemoryFallback, readBlobWithMemoryFallback, removeBlobWithMemoryFallback } from "@/services/blob-storage-fallback";
 
 export type UploadedImage = {
     url: string;
@@ -10,26 +11,28 @@ export type UploadedImage = {
     height: number;
     bytes: number;
     mimeType: string;
+    persistent?: boolean;
 };
 
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "image_files" });
 const objectUrls = new Map<string, string>();
+const memoryBlobs = new Map<string, Blob>();
 
 export async function uploadImage(input: string | Blob): Promise<UploadedImage> {
     const blob = typeof input === "string" ? await (await fetch(input)).blob() : input;
     const storageKey = `image:${nanoid()}`;
-    await store.setItem(storageKey, blob);
+    const persistent = await persistBlobWithMemoryFallback(store, memoryBlobs, storageKey, blob);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     const meta = await readImageMeta(url);
-    return { url, storageKey, width: meta.width, height: meta.height, bytes: blob.size, mimeType: blob.type || meta.mimeType };
+    return { url, storageKey, width: meta.width, height: meta.height, bytes: blob.size, mimeType: blob.type || meta.mimeType, persistent };
 }
 
 export async function resolveImageUrl(storageKey?: string, fallback = "") {
     if (!storageKey) return fallback;
     const cached = objectUrls.get(storageKey);
     if (cached) return cached;
-    const blob = await store.getItem<Blob>(storageKey);
+    const blob = await readBlobWithMemoryFallback(store, memoryBlobs, storageKey);
     if (!blob) return fallback;
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
@@ -37,11 +40,11 @@ export async function resolveImageUrl(storageKey?: string, fallback = "") {
 }
 
 export async function getImageBlob(storageKey: string) {
-    return store.getItem<Blob>(storageKey);
+    return readBlobWithMemoryFallback(store, memoryBlobs, storageKey);
 }
 
 export async function setImageBlob(storageKey: string, blob: Blob) {
-    await store.setItem(storageKey, blob);
+    await persistBlobWithMemoryFallback(store, memoryBlobs, storageKey, blob);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     return url;
@@ -59,7 +62,7 @@ export async function deleteStoredImages(keys: Iterable<string>) {
             const url = objectUrls.get(key);
             if (url) URL.revokeObjectURL(url);
             objectUrls.delete(key);
-            await store.removeItem(key);
+            await removeBlobWithMemoryFallback(store, memoryBlobs, key);
         }),
     );
 }
@@ -68,6 +71,9 @@ export async function cleanupUnusedImages(usedData: unknown) {
     const usedKeys = collectImageStorageKeys(usedData);
     const unused: string[] = [];
     await store.iterate((_value, key) => {
+        if (!usedKeys.has(key)) unused.push(key);
+    });
+    memoryBlobs.forEach((_value, key) => {
         if (!usedKeys.has(key)) unused.push(key);
     });
     await deleteStoredImages(unused);

@@ -198,25 +198,25 @@ export default function VideoPage() {
             const nextReferences = await Promise.all(
                 imageFiles.map(async (file) => {
                     const image = await uploadImage(file);
-                    return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
+                    return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey, persistent: image.persistent };
                 }),
             );
             const nextVideoReferences = await Promise.all(
                 videoFiles.map(async (file) => {
                     const video = await uploadMediaFile(file, "video-reference");
-                    return { id: nanoid(), name: file.name, type: video.mimeType, url: video.url, storageKey: video.storageKey, bytes: video.bytes, width: video.width, height: video.height, durationMs: video.durationMs };
+                    return { id: nanoid(), name: file.name, type: video.mimeType, url: video.url, storageKey: video.storageKey, bytes: video.bytes, width: video.width, height: video.height, durationMs: video.durationMs, persistent: video.persistent };
                 }),
             );
-            const nextAudioReferences = filterAudioReferencesByDuration(
-                audioReferences,
-                await Promise.all(
-                    audioFiles.map(async (file) => {
-                        const audio = await uploadMediaFile(file, "audio-reference");
-                        return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, durationMs: audio.durationMs };
-                    }),
-                ),
-                message.warning,
+            const uploadedAudioReferences = await Promise.all(
+                audioFiles.map(async (file) => {
+                    const audio = await uploadMediaFile(file, "audio-reference");
+                    return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, durationMs: audio.durationMs, persistent: audio.persistent };
+                }),
             );
+            const nextAudioReferences = filterAudioReferencesByDuration(audioReferences, uploadedAudioReferences, message.warning);
+            if ([...nextReferences, ...nextVideoReferences, ...uploadedAudioReferences].some((item) => item.persistent === false)) {
+                message.warning("浏览器持久存储不可用，参考素材仅在当前页面有效，请勿刷新并直接提交任务");
+            }
             setReferences((value) => [...value, ...nextReferences].slice(0, latestLimits.maxImages));
             setVideoReferences((value) => [...value, ...nextVideoReferences].slice(0, latestLimits.maxVideos));
             setAudioReferences((value) => [...value, ...nextAudioReferences].slice(0, latestLimits.maxAudios));
