@@ -1,11 +1,10 @@
-import localforage from "localforage";
-
 import { upscaleDataUrl } from "@/lib/canvas/canvas-image-data";
+import { coreStore } from "@/services/browser-kv-storage";
 import type { AgentAttachment, AgentChatItem } from "@/stores/use-agent-store";
 
 export type StoredAgentUserMessage = Pick<AgentChatItem, "id" | "text" | "attachments"> & { role: "user"; historyText: string; threadId?: string; turnId?: string };
 
-const store = localforage.createInstance({ name: "infinite-canvas", storeName: "agent_chat_messages" });
+const store = coreStore("agent_chat_messages");
 const mutations = new Map<string, Promise<void>>();
 const indexKey = (threadId: string) => `thread:${threadId}`;
 const messageKey = (threadId: string, messageId: string) => `message:${threadId}:${messageId}`;

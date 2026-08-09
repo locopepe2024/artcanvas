@@ -1,7 +1,6 @@
 import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, ClipboardPaste, Download, FolderPlus, History, LoaderCircle, Music2, Plus, RefreshCw, SlidersHorizontal, Sparkles, Trash2, Upload, VideoIcon } from "lucide-react";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { App, Button, Checkbox, Drawer, Empty, Input, Modal, Tag, Typography } from "antd";
-import localforage from "localforage";
 import { nanoid } from "nanoid";
 import { saveAs } from "file-saver";
 
@@ -23,6 +22,7 @@ import { modelOptionLabel, modelOptionName, useConfigStore, useEffectiveConfig, 
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
+import { coreStore } from "@/services/browser-kv-storage";
 
 type GeneratedVideo = {
     id: string;
@@ -67,8 +67,7 @@ type GenerationLogConfig = Pick<AiConfig, "model" | "videoModel" | "size" | "vqu
 
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 
-const LOG_STORE_KEY = "infinite-canvas:video_generation_logs";
-const logStore = localforage.createInstance({ name: "infinite-canvas", storeName: "video_generation_logs" });
+const logStore = coreStore("video_generation_logs");
 
 function isRecoverablePollingFailure(log: GenerationLog) {
     if (log.status !== "失败" || !log.task) return false;
@@ -198,25 +197,22 @@ export default function VideoPage() {
             const nextReferences = await Promise.all(
                 imageFiles.map(async (file) => {
                     const image = await uploadImage(file);
-                    return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey, persistent: image.persistent };
+                    return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
                 }),
             );
             const nextVideoReferences = await Promise.all(
                 videoFiles.map(async (file) => {
                     const video = await uploadMediaFile(file, "video-reference");
-                    return { id: nanoid(), name: file.name, type: video.mimeType, url: video.url, storageKey: video.storageKey, bytes: video.bytes, width: video.width, height: video.height, durationMs: video.durationMs, persistent: video.persistent };
+                    return { id: nanoid(), name: file.name, type: video.mimeType, url: video.url, storageKey: video.storageKey, bytes: video.bytes, width: video.width, height: video.height, durationMs: video.durationMs };
                 }),
             );
             const uploadedAudioReferences = await Promise.all(
                 audioFiles.map(async (file) => {
                     const audio = await uploadMediaFile(file, "audio-reference");
-                    return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, durationMs: audio.durationMs, persistent: audio.persistent };
+                    return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, durationMs: audio.durationMs };
                 }),
             );
             const nextAudioReferences = filterAudioReferencesByDuration(audioReferences, uploadedAudioReferences, message.warning);
-            if ([...nextReferences, ...nextVideoReferences, ...uploadedAudioReferences].some((item) => item.persistent === false)) {
-                message.warning("浏览器持久存储不可用，参考素材仅在当前页面有效，请勿刷新并直接提交任务");
-            }
             setReferences((value) => [...value, ...nextReferences].slice(0, latestLimits.maxImages));
             setVideoReferences((value) => [...value, ...nextVideoReferences].slice(0, latestLimits.maxVideos));
             setAudioReferences((value) => [...value, ...nextAudioReferences].slice(0, latestLimits.maxAudios));
@@ -288,16 +284,19 @@ export default function VideoPage() {
         try {
             const task = await createVideoGenerationTask(snapshot.config, snapshot.text, snapshot.references, snapshot.videoReferences, snapshot.audioReferences);
             const log = buildLog({ prompt: snapshot.text, model: snapshot.model, config: snapshot.config, references: snapshot.references, videoReferences: snapshot.videoReferences, audioReferences: snapshot.audioReferences, durationMs: 0, status: "生成中", task });
-            await logStore.setItem(log.id, serializeLog(log));
-            recoverableLogsRef.current = [log, ...recoverableLogsRef.current.filter((item) => item.id !== log.id)];
-            setLogs((value) => [log, ...value.filter((item) => item.id !== log.id)].sort((a, b) => b.createdAt - a.createdAt));
+            stageLog(log);
             void pollGenerationLog(log, snapshot.config, agentTaskId);
-            void refreshLogs(false);
+            try {
+                await logStore.setItem(log.id, serializeLog(log));
+                void refreshLogs(false);
+            } catch (storageError) {
+                message.warning(`任务 ${task.id} 已创建并继续查询，但生成记录保存失败：${errorMessageOf(storageError)}`);
+            }
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "生成失败";
             setResults([{ id: nanoid(), status: "failed", error: errorMessage }]);
             if (agentTaskId) updateAgentTask(agentTaskId, { status: "failed", successCount: 0, failCount: 1, error: errorMessage });
-            await saveLog(
+            await saveLogSafely(
                 buildLog({
                     prompt: snapshot.text,
                     model: snapshot.model,
@@ -309,6 +308,7 @@ export default function VideoPage() {
                     status: "失败",
                     error: errorMessage,
                 }),
+                false,
             );
             message.error(errorMessage);
             if (!activeLogIdsRef.current.size) setRunning(false);
@@ -443,10 +443,25 @@ export default function VideoPage() {
     };
 
     const saveLog = async (log: GenerationLog, resumePending = true) => {
-        await logStore.setItem(log.id, serializeLog(log));
-        recoverableLogsRef.current = [log, ...recoverableLogsRef.current.filter((item) => item.id !== log.id)];
+        stageLog(log);
         setPreviewLog((current) => (current?.id === log.id ? log : current));
+        await logStore.setItem(log.id, serializeLog(log));
         await refreshLogs(resumePending);
+    };
+
+    const saveLogSafely = async (log: GenerationLog, resumePending = true) => {
+        try {
+            await saveLog(log, resumePending);
+            return true;
+        } catch (error) {
+            message.warning(`生成记录保存失败：${errorMessageOf(error)}`);
+            return false;
+        }
+    };
+
+    const stageLog = (log: GenerationLog) => {
+        recoverableLogsRef.current = [log, ...recoverableLogsRef.current.filter((item) => item.id !== log.id)];
+        setLogs((value) => [log, ...value.filter((item) => item.id !== log.id)].sort((a, b) => b.createdAt - a.createdAt));
     };
 
     const refreshLogs = async (resumePending = true) => {
@@ -482,7 +497,7 @@ export default function VideoPage() {
         try {
             if (isRecoverablePollingFailure(log)) {
                 log = { ...log, status: "生成中", error: undefined };
-                await saveLog(log, false);
+                await saveLogSafely(log, false);
             }
             const result = await waitForVideoGenerationTask(configOverride || taskConfig, task);
             const stored = await storeGeneratedVideo(result, configOverride || taskConfig);
@@ -498,13 +513,13 @@ export default function VideoPage() {
             };
             if (presentResult) setResults([{ id: nextVideo.id, status: "success", video: nextVideo }]);
             if (agentTaskId) updateAgentTask(agentTaskId, { status: "succeeded", successCount: 1, failCount: 0, error: undefined });
-            await saveLog({ ...log, status: "成功", durationMs: nextVideo.durationMs, video: nextVideo, error: undefined }, false);
+            await saveLogSafely({ ...log, status: "成功", durationMs: nextVideo.durationMs, video: nextVideo, error: undefined }, false);
             if (presentResult) message.success("视频已生成");
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "生成失败";
             if (presentResult) setResults([{ id: log.id, status: "failed", error: errorMessage }]);
             if (agentTaskId) updateAgentTask(agentTaskId, { status: "failed", successCount: 0, failCount: 1, error: errorMessage });
-            await saveLog({ ...log, status: "失败", durationMs: Date.now() - log.createdAt, error: errorMessage }, false);
+            await saveLogSafely({ ...log, status: "失败", durationMs: Date.now() - log.createdAt, error: errorMessage }, false);
             if (presentResult) message.error(errorMessage);
         } finally {
             activeLogIdsRef.current.delete(log.id);
@@ -531,14 +546,13 @@ export default function VideoPage() {
         }
         const task: VideoGenerationTask = { id: taskId, provider: "openai", model: selectedModel };
         const log = buildLog({ prompt: prompt.trim(), model: selectedModel, config: taskConfig, references: [], videoReferences: [], audioReferences: [], durationMs: 0, status: "生成中", task });
-        await logStore.setItem(log.id, serializeLog(log));
-        recoverableLogsRef.current = [log, ...recoverableLogsRef.current.filter((item) => item.id !== log.id)];
-        setLogs((value) => [log, ...value.filter((item) => item.id !== log.id)].sort((a, b) => b.createdAt - a.createdAt));
+        stageLog(log);
         setPreviewLog(log);
         setResults([{ id: log.id, status: "pending" }]);
         setRecoverTaskOpen(false);
         setRecoverTaskId("");
         void pollGenerationLog(log, taskConfig);
+        await saveLogSafely(log, false);
     };
 
     const previewGenerationLog = (log: GenerationLog) => {
@@ -1218,4 +1232,8 @@ function normalizeResolution(value: string) {
 
 function delay(ms: number) {
     return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function errorMessageOf(error: unknown) {
+    return error instanceof Error ? error.message : String(error || "未知错误");
 }

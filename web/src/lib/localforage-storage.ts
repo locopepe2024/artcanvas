@@ -1,16 +1,13 @@
-import localforage from "localforage";
 import type { StateStorage } from "zustand/middleware";
+import { coreStore } from "@/services/browser-kv-storage";
 
-localforage.config({
-    name: "infinite-canvas",
-    storeName: "app_state",
-});
+const appStateStore = coreStore("app_state");
 
 export const localForageStorage: StateStorage = {
     getItem: async (name) => {
         if (typeof window === "undefined") return null;
         try {
-            return (await localforage.getItem<string>(name)) || null;
+            return (await appStateStore.getItem<string>(name)) || null;
         } catch {
             return window.localStorage.getItem(name);
         }
@@ -18,7 +15,7 @@ export const localForageStorage: StateStorage = {
     setItem: async (name, value) => {
         if (typeof window === "undefined") return;
         try {
-            await localforage.setItem(name, value);
+            await appStateStore.setItem(name, value);
         } catch {
             window.localStorage.setItem(name, value);
         }
@@ -26,7 +23,7 @@ export const localForageStorage: StateStorage = {
     removeItem: async (name) => {
         if (typeof window === "undefined") return;
         try {
-            await localforage.removeItem(name);
+            await appStateStore.removeItem(name);
         } catch {
             window.localStorage.removeItem(name);
         }

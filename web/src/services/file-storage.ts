@@ -1,28 +1,26 @@
-import localforage from "localforage";
 import { nanoid } from "nanoid";
-import { persistBlobWithMemoryFallback, readBlobWithMemoryFallback, removeBlobWithMemoryFallback } from "@/services/blob-storage-fallback";
+import { coreStore } from "@/services/browser-kv-storage";
 
-export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number; persistent?: boolean };
+export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number };
 
-const store = localforage.createInstance({ name: "infinite-canvas", storeName: "media_files" });
+const store = coreStore("media_files");
 const objectUrls = new Map<string, string>();
-const memoryBlobs = new Map<string, Blob>();
 
 export async function uploadMediaFile(input: string | Blob, prefix = "file"): Promise<UploadedFile> {
     const blob = typeof input === "string" ? await (await fetch(input)).blob() : input;
     const storageKey = `${prefix}:${nanoid()}`;
-    const persistent = await persistBlobWithMemoryFallback(store, memoryBlobs, storageKey, blob);
+    await store.setItem(storageKey, blob);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     const meta = blob.type.startsWith("video/") ? await readVideoMeta(url) : blob.type.startsWith("audio/") ? await readAudioMeta(url) : {};
-    return { url, storageKey, bytes: blob.size, mimeType: blob.type || "application/octet-stream", persistent, ...meta };
+    return { url, storageKey, bytes: blob.size, mimeType: blob.type || "application/octet-stream", ...meta };
 }
 
 export async function resolveMediaUrl(storageKey?: string, fallback = "") {
     if (!storageKey) return fallback;
     const cached = objectUrls.get(storageKey);
     if (cached) return cached;
-    const blob = await readBlobWithMemoryFallback(store, memoryBlobs, storageKey);
+    const blob = await store.getItem<Blob>(storageKey);
     if (!blob) return fallback;
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
@@ -30,11 +28,11 @@ export async function resolveMediaUrl(storageKey?: string, fallback = "") {
 }
 
 export async function getMediaBlob(storageKey: string) {
-    return readBlobWithMemoryFallback(store, memoryBlobs, storageKey);
+    return store.getItem<Blob>(storageKey);
 }
 
 export async function setMediaBlob(storageKey: string, blob: Blob) {
-    await persistBlobWithMemoryFallback(store, memoryBlobs, storageKey, blob);
+    await store.setItem(storageKey, blob);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     return url;
@@ -46,7 +44,7 @@ export async function deleteStoredMedia(keys: Iterable<string>) {
             const url = objectUrls.get(key);
             if (url) URL.revokeObjectURL(url);
             objectUrls.delete(key);
-            await removeBlobWithMemoryFallback(store, memoryBlobs, key);
+            await store.removeItem(key);
         }),
     );
 }
@@ -57,10 +55,7 @@ export async function cleanupUnusedMedia(usedData: unknown) {
     await store.iterate((_value, key) => {
         if (!usedKeys.has(key)) unused.push(key);
     });
-    memoryBlobs.forEach((_value, key) => {
-        if (!usedKeys.has(key)) unused.push(key);
-    });
-    await Promise.all(unused.map((key) => removeBlobWithMemoryFallback(store, memoryBlobs, key)));
+    await Promise.all(unused.map((key) => store.removeItem(key)));
 }
 
 export function collectMediaStorageKeys(value: unknown, keys = new Set<string>()) {

@@ -1,8 +1,6 @@
-import localforage from "localforage";
-
 import { nanoid } from "nanoid";
 import { readImageMeta } from "@/lib/image-utils";
-import { persistBlobWithMemoryFallback, readBlobWithMemoryFallback, removeBlobWithMemoryFallback } from "@/services/blob-storage-fallback";
+import { coreStore } from "@/services/browser-kv-storage";
 
 export type UploadedImage = {
     url: string;
@@ -11,28 +9,26 @@ export type UploadedImage = {
     height: number;
     bytes: number;
     mimeType: string;
-    persistent?: boolean;
 };
 
-const store = localforage.createInstance({ name: "infinite-canvas", storeName: "image_files" });
+const store = coreStore("image_files");
 const objectUrls = new Map<string, string>();
-const memoryBlobs = new Map<string, Blob>();
 
 export async function uploadImage(input: string | Blob): Promise<UploadedImage> {
     const blob = typeof input === "string" ? await (await fetch(input)).blob() : input;
     const storageKey = `image:${nanoid()}`;
-    const persistent = await persistBlobWithMemoryFallback(store, memoryBlobs, storageKey, blob);
+    await store.setItem(storageKey, blob);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     const meta = await readImageMeta(url);
-    return { url, storageKey, width: meta.width, height: meta.height, bytes: blob.size, mimeType: blob.type || meta.mimeType, persistent };
+    return { url, storageKey, width: meta.width, height: meta.height, bytes: blob.size, mimeType: blob.type || meta.mimeType };
 }
 
 export async function resolveImageUrl(storageKey?: string, fallback = "") {
     if (!storageKey) return fallback;
     const cached = objectUrls.get(storageKey);
     if (cached) return cached;
-    const blob = await readBlobWithMemoryFallback(store, memoryBlobs, storageKey);
+    const blob = await store.getItem<Blob>(storageKey);
     if (!blob) return fallback;
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
@@ -40,11 +36,11 @@ export async function resolveImageUrl(storageKey?: string, fallback = "") {
 }
 
 export async function getImageBlob(storageKey: string) {
-    return readBlobWithMemoryFallback(store, memoryBlobs, storageKey);
+    return store.getItem<Blob>(storageKey);
 }
 
 export async function setImageBlob(storageKey: string, blob: Blob) {
-    await persistBlobWithMemoryFallback(store, memoryBlobs, storageKey, blob);
+    await store.setItem(storageKey, blob);
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     return url;
@@ -62,7 +58,7 @@ export async function deleteStoredImages(keys: Iterable<string>) {
             const url = objectUrls.get(key);
             if (url) URL.revokeObjectURL(url);
             objectUrls.delete(key);
-            await removeBlobWithMemoryFallback(store, memoryBlobs, key);
+            await store.removeItem(key);
         }),
     );
 }
@@ -71,9 +67,6 @@ export async function cleanupUnusedImages(usedData: unknown) {
     const usedKeys = collectImageStorageKeys(usedData);
     const unused: string[] = [];
     await store.iterate((_value, key) => {
-        if (!usedKeys.has(key)) unused.push(key);
-    });
-    memoryBlobs.forEach((_value, key) => {
         if (!usedKeys.has(key)) unused.push(key);
     });
     await deleteStoredImages(unused);
