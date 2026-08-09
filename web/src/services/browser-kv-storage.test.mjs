@@ -43,6 +43,6 @@ describe("managed browser storage schema", () => {
         const source = readFileSync(new URL("../pages/video/index.tsx", import.meta.url), "utf8");
         const acceptedTaskBlock = source.slice(source.indexOf("const task = await createVideoGenerationTask"), source.indexOf("} catch (error) {", source.indexOf("const task = await createVideoGenerationTask")));
         expect(acceptedTaskBlock.indexOf("void pollGenerationLog(log")).toBeGreaterThan(-1);
-        expect(acceptedTaskBlock.indexOf("await logStore.setItem")).toBeGreaterThan(acceptedTaskBlock.indexOf("void pollGenerationLog(log"));
+        expect(acceptedTaskBlock.indexOf("await persistLogRecord(log)")).toBeGreaterThan(acceptedTaskBlock.indexOf("void pollGenerationLog(log"));
     });
 });

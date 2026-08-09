@@ -12,11 +12,13 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS, SEEDANCE_VIDEO_MIME_TYPES } from "@/lib/seedance-video";
 import { preferredUniArtImageReferenceMode, resolveUniArtReferenceLimits, uniArtVideoSubmissionError } from "@/lib/uniart-video";
-import { deleteStoredMedia, resolveMediaUrl } from "@/services/file-storage";
-import { resolveImageUrl } from "@/services/image-storage";
+import { collectMediaStorageKeys, deleteStoredMedia, resolveMediaUrl } from "@/services/file-storage";
+import { collectImageStorageKeys, deleteStoredImages, resolveImageUrl } from "@/services/image-storage";
 import { createVideoGenerationTask, isRetryableVideoTaskQueryError, storeGeneratedVideo, waitForVideoGenerationTask, type VideoGenerationTask } from "@/services/api/video";
 import { uploadVideoReferenceAsset } from "@/services/video-reference-assets";
+import { isQuotaExceededStorageError, writeWithConfirmedQuotaCleanup } from "@/services/browser-storage-errors";
 import { claimVideoLogRecovery } from "@/lib/video-log-recovery";
+import { removableTerminalVideoLogs, storageKeysOwnedOnlyByRemovedHistory } from "@/lib/video-history-cleanup";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 import { modelOptionLabel, modelOptionName, useConfigStore, useEffectiveConfig, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
@@ -69,6 +71,7 @@ type GenerationLogConfig = Pick<AiConfig, "model" | "videoModel" | "size" | "vqu
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 
 const logStore = coreStore("video_generation_logs");
+const imageLogStore = coreStore("image_generation_logs");
 
 function isRecoverablePollingFailure(log: GenerationLog) {
     if (log.status !== "失败" || !log.task) return false;
@@ -76,7 +79,7 @@ function isRecoverablePollingFailure(log: GenerationLog) {
 }
 
 export default function VideoPage() {
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const fileInputTargetRef = useRef<"all" | "image" | "video" | "audio">("all");
     const dragDepthRef = useRef(0);
@@ -117,6 +120,8 @@ export default function VideoPage() {
     const processedCommandRef = useRef(0);
     const agentTaskIdRef = useRef<string | undefined>(undefined);
     const submittingRef = useRef(false);
+    const quotaCleanupPromiseRef = useRef<Promise<{ approved: boolean; logs: number }> | null>(null);
+    const quotaCleanupDeclinedRef = useRef(false);
 
     const model = effectiveConfig.videoModel || effectiveConfig.model;
     const uniArtCapability = videoCapabilityOf(effectiveConfig, model);
@@ -289,7 +294,7 @@ export default function VideoPage() {
             stageLog(log);
             void pollGenerationLog(log, snapshot.config, agentTaskId);
             try {
-                await logStore.setItem(log.id, serializeLog(log));
+                await persistLogRecord(log);
                 void refreshLogs(false);
             } catch (storageError) {
                 message.warning(`任务 ${task.id} 已创建并继续查询，但生成记录保存失败：${errorMessageOf(storageError)}`);
@@ -438,7 +443,10 @@ export default function VideoPage() {
             .filter((log) => selectedLogIds.includes(log.id))
             .map((log) => log.video?.storageKey)
             .filter((key): key is string => Boolean(key));
-        void Promise.all([deleteStoredMedia(mediaKeys), ...selectedLogIds.map((id) => logStore.removeItem(id))]).then(() => refreshLogs());
+        void Promise.all([deleteStoredMedia(mediaKeys), ...selectedLogIds.map((id) => logStore.removeItem(id))]).then(() => {
+            quotaCleanupDeclinedRef.current = false;
+            return refreshLogs();
+        });
         if (previewLog && selectedLogIds.includes(previewLog.id)) {
             setPreviewLog(null);
             setResults([]);
@@ -450,8 +458,89 @@ export default function VideoPage() {
     const saveLog = async (log: GenerationLog, resumePending = true) => {
         stageLog(log);
         setPreviewLog((current) => (current?.id === log.id ? log : current));
-        await logStore.setItem(log.id, serializeLog(log));
+        await persistLogRecord(log);
         await refreshLogs(resumePending);
+    };
+
+    const persistLogRecord = async (log: GenerationLog) => {
+        const write = () => logStore.setItem(log.id, serializeLog(log));
+        if (quotaCleanupDeclinedRef.current) {
+            try {
+                await write();
+                return;
+            } catch (error) {
+                if (!isQuotaExceededStorageError(error)) throw error;
+                throw new Error("浏览器存储空间仍不足；任务继续查询，请在生成记录中清理不需要的历史后再恢复", { cause: error });
+            }
+        }
+        const result = await writeWithConfirmedQuotaCleanup(write, () => requestHistoryCleanup(log));
+        if (result.status === "stored") return;
+        if (result.status === "recovered") {
+            quotaCleanupDeclinedRef.current = false;
+            message.success(`已清理 ${result.logs} 条本地视频历史记录并恢复当前任务保存`);
+            return;
+        }
+        quotaCleanupDeclinedRef.current = true;
+        if (result.status === "declined") throw new Error("浏览器存储空间已满；任务仍在继续查询，请保留 task ID，清理本地生成记录后再恢复", { cause: result.error });
+        if (result.status === "nothing-to-clean") throw new Error("浏览器存储空间已满，但没有可清理的已完成或失败视频记录；请在生成记录中删除不需要的任务，或清理该站点的浏览器数据", { cause: result.error });
+        throw new Error("清理历史记录后浏览器空间仍不足；任务继续查询，请保留 task ID 并清理更多本地数据", { cause: result.error });
+    };
+
+    const requestHistoryCleanup = (currentLog: GenerationLog) => {
+        if (quotaCleanupPromiseRef.current) return quotaCleanupPromiseRef.current;
+        const promise = confirmHistoryCleanup().then(async (approved) => ({ approved, logs: approved ? (await clearTerminalVideoHistory(currentLog)).logs : 0 }));
+        quotaCleanupPromiseRef.current = promise;
+        const reset = () => {
+            if (quotaCleanupPromiseRef.current === promise) quotaCleanupPromiseRef.current = null;
+        };
+        void promise.then(reset, reset);
+        return promise;
+    };
+
+    const confirmHistoryCleanup = () =>
+        new Promise<boolean>((resolve) => {
+            let settled = false;
+            const settle = (approved: boolean) => {
+                if (settled) return;
+                settled = true;
+                resolve(approved);
+            };
+            modal.confirm({
+                title: "浏览器存储空间已满",
+                content: "是否清理已成功或失败的本地视频生成记录及其未被资产、画布引用的缓存？正在运行的任务、我的资产和画布内容不会删除。",
+                okText: "清理历史并继续",
+                cancelText: "暂不清理",
+                okButtonProps: { danger: true },
+                onOk: () => settle(true),
+                onCancel: () => settle(false),
+                afterClose: () => settle(false),
+            });
+        });
+
+    const clearTerminalVideoHistory = async (currentLog: GenerationLog) => {
+        const [storedVideoLogs, storedImageLogs] = await Promise.all([readStorageRecords<GenerationLog>(logStore), readStorageRecords<Record<string, unknown>>(imageLogStore)]);
+        const protectedLogIds = new Set([currentLog.id, ...activeLogIdsRef.current]);
+        const removable = removableTerminalVideoLogs(storedVideoLogs, protectedLogIds);
+        if (!removable.length) return { logs: 0 };
+        const removableIds = new Set(removable.map((log) => log.id));
+        const activeLogs = recoverableLogsRef.current.filter((log) => protectedLogIds.has(log.id));
+        const retainedData = {
+            assets: useAssetStore.getState().assets,
+            projects: (await import("@/stores/canvas/use-canvas-store")).useCanvasStore.getState().projects,
+            imageLogs: storedImageLogs,
+            videoLogs: [currentLog, ...activeLogs, ...storedVideoLogs.filter((log) => !removableIds.has(log.id))],
+        };
+        const removableImages = storageKeysOwnedOnlyByRemovedHistory(removable, retainedData, collectImageStorageKeys);
+        const removableMedia = storageKeysOwnedOnlyByRemovedHistory(removable, retainedData, collectMediaStorageKeys);
+        await Promise.all(removable.map((log) => logStore.removeItem(log.id)));
+        await Promise.all([deleteStoredImages(removableImages), deleteStoredMedia(removableMedia)]);
+        setLogs((value) => value.filter((item) => !removableIds.has(item.id)));
+        setSelectedLogIds((value) => value.filter((id) => !removableIds.has(id)));
+        if (previewLog && removableIds.has(previewLog.id)) {
+            setPreviewLog(null);
+            setResults([]);
+        }
+        return { logs: removable.length };
     };
 
     const saveLogSafely = async (log: GenerationLog, resumePending = true) => {
@@ -1241,4 +1330,12 @@ function delay(ms: number) {
 
 function errorMessageOf(error: unknown) {
     return error instanceof Error ? error.message : String(error || "未知错误");
+}
+
+async function readStorageRecords<T>(store: ReturnType<typeof coreStore>) {
+    const records: T[] = [];
+    await store.iterate<T, void>((value) => {
+        records.push(value);
+    });
+    return records;
 }
