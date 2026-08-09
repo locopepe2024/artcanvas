@@ -12,9 +12,10 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS, SEEDANCE_VIDEO_MIME_TYPES } from "@/lib/seedance-video";
 import { preferredUniArtImageReferenceMode, resolveUniArtReferenceLimits, uniArtVideoSubmissionError } from "@/lib/uniart-video";
-import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
-import { resolveImageUrl, uploadImage } from "@/services/image-storage";
+import { deleteStoredMedia, resolveMediaUrl } from "@/services/file-storage";
+import { resolveImageUrl } from "@/services/image-storage";
 import { createVideoGenerationTask, isRetryableVideoTaskQueryError, storeGeneratedVideo, waitForVideoGenerationTask, type VideoGenerationTask } from "@/services/api/video";
+import { uploadVideoReferenceAsset } from "@/services/video-reference-assets";
 import { claimVideoLogRecovery } from "@/lib/video-log-recovery";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
@@ -196,20 +197,20 @@ export default function VideoPage() {
         try {
             const nextReferences = await Promise.all(
                 imageFiles.map(async (file) => {
-                    const image = await uploadImage(file);
-                    return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
+                    const image = await uploadVideoReferenceAsset(file);
+                    return { id: nanoid(), name: file.name, type: image.mimeType, dataUrl: image.url };
                 }),
             );
             const nextVideoReferences = await Promise.all(
                 videoFiles.map(async (file) => {
-                    const video = await uploadMediaFile(file, "video-reference");
-                    return { id: nanoid(), name: file.name, type: video.mimeType, url: video.url, storageKey: video.storageKey, bytes: video.bytes, width: video.width, height: video.height, durationMs: video.durationMs };
+                    const video = await uploadVideoReferenceAsset(file);
+                    return { id: nanoid(), name: file.name, type: video.mimeType, url: video.url, bytes: video.bytes, width: video.width, height: video.height, durationMs: video.durationMs };
                 }),
             );
             const uploadedAudioReferences = await Promise.all(
                 audioFiles.map(async (file) => {
-                    const audio = await uploadMediaFile(file, "audio-reference");
-                    return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, storageKey: audio.storageKey, durationMs: audio.durationMs };
+                    const audio = await uploadVideoReferenceAsset(file);
+                    return { id: nanoid(), name: file.name, type: audio.mimeType, url: audio.url, durationMs: audio.durationMs };
                 }),
             );
             const nextAudioReferences = filterAudioReferencesByDuration(audioReferences, uploadedAudioReferences, message.warning);
@@ -250,8 +251,9 @@ export default function VideoPage() {
             }
             const nextReferences = await Promise.all(
                 blobs.slice(0, Math.max(0, referenceLimits.maxImages - references.length)).map(async (blob, index) => {
-                    const image = await uploadImage(blob);
-                    return { id: nanoid(), name: `clipboard-${index + 1}.png`, type: image.mimeType, dataUrl: image.url, storageKey: image.storageKey };
+                    const name = `clipboard-${index + 1}.png`;
+                    const image = await uploadVideoReferenceAsset(blob, name);
+                    return { id: nanoid(), name, type: image.mimeType, dataUrl: image.url };
                 }),
             );
             setReferences((value) => [...value, ...nextReferences].slice(0, referenceLimits.maxImages));
@@ -404,14 +406,17 @@ export default function VideoPage() {
                 message.warning("已达到画布单次上传安全上限，具体参数由 UniArt 校验");
                 return;
             }
-            const stored = await uploadImage(payload.dataUrl);
-            setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url, storageKey: stored.storageKey }].slice(0, referenceLimits.maxImages));
+            const blob = await (await fetch(payload.dataUrl)).blob();
+            const stored = await uploadVideoReferenceAsset(blob, payload.title || "reference.png");
+            setReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, dataUrl: stored.url }].slice(0, referenceLimits.maxImages));
         } else if (payload.kind === "video") {
             if (!referenceLimits.maxVideos) {
                 message.warning("参考视频仅能用于当前模型支持的全能参考模式");
                 return;
             }
-            setVideoReferences((value) => [...value, { id: nanoid(), name: payload.title, type: "video/mp4", url: payload.url, storageKey: payload.storageKey, width: payload.width, height: payload.height }].slice(0, referenceLimits.maxVideos));
+            const blob = await (await fetch(payload.url)).blob();
+            const stored = await uploadVideoReferenceAsset(blob, payload.title || "reference.mp4");
+            setVideoReferences((value) => [...value, { id: nanoid(), name: payload.title, type: stored.mimeType, url: stored.url, width: stored.width || payload.width, height: stored.height || payload.height, durationMs: stored.durationMs }].slice(0, referenceLimits.maxVideos));
         }
         setAssetPickerOpen(false);
     };

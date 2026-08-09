@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
+import { isCanvasVideoAssetUrl, uploadVideoReferenceAsset } from "@/services/video-reference-assets";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { resolveUniArtReferenceLimits, resolveUniArtVideoParams, uniArtVideoSubmissionError, type UniArtVideoCapability } from "@/lib/uniart-video";
 import { buildApiUrl, decodeChannelModel, encodeChannelModel, isChannelModelValue, modelCapabilityOf, modelOptionName, normalizeModelOptionValue, resolveModelRequestConfig, resolveModelScript, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
@@ -307,9 +308,9 @@ async function buildUniArtOfficialVideoRequest(
     if (inputVideoDurationMs > 15000) throw new Error("参考视频总时长不能超过 15 秒");
 
     const [imageURLs, videoURLs, audioURLs] = await Promise.all([
-        Promise.all(references.map(async (image) => uploadCanvasVideoAsset(await dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) }), options))),
-        Promise.all(videoReferences.map(async (video) => uploadCanvasVideoAsset(await referenceMediaFile(video), options))),
-        Promise.all(audioReferences.map(async (audio) => uploadCanvasVideoAsset(await referenceMediaFile(audio), options))),
+        Promise.all(references.map((image) => resolveReferenceImageUrl(image, options))),
+        Promise.all(videoReferences.map((video) => resolveReferenceMediaUrl(video, options))),
+        Promise.all(audioReferences.map((audio) => resolveReferenceMediaUrl(audio, options))),
     ]);
 
     return buildUniArtOfficialVideoRequestBody(model, prompt, duration, ratio, resolution, mode, imageURLs, videoURLs, audioURLs, generateAudio, faceMode);
@@ -364,12 +365,16 @@ export function buildUniArtOfficialContent(
     return content;
 }
 
-async function uploadCanvasVideoAsset(file: File, options?: RequestOptions) {
-    const body = new FormData();
-    body.append("file", file);
-    const response = await axios.post<{ path?: string }>("/api/video-assets", body, { signal: options?.signal });
-    if (!response.data.path) throw new Error("参考素材上传接口没有返回访问地址");
-    return new URL(response.data.path, window.location.origin).toString();
+async function resolveReferenceImageUrl(reference: ReferenceImage, options?: RequestOptions) {
+    const directUrl = reference.dataUrl || reference.url || "";
+    if (isCanvasVideoAssetUrl(directUrl)) return directUrl;
+    const file = await dataUrlToFile({ ...reference, dataUrl: await imageToDataUrl(reference) });
+    return (await uploadVideoReferenceAsset(file, undefined, options?.signal)).url;
+}
+
+async function resolveReferenceMediaUrl(reference: ReferenceVideo | ReferenceAudio, options?: RequestOptions) {
+    if (isCanvasVideoAssetUrl(reference.url)) return reference.url;
+    return (await uploadVideoReferenceAsset(await referenceMediaFile(reference), undefined, options?.signal)).url;
 }
 
 async function referenceMediaFile(reference: ReferenceVideo | ReferenceAudio) {

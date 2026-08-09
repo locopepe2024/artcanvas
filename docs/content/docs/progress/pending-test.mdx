@@ -10,6 +10,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 - 视频创作台前台状态隔离：后台恢复历史记录时不得把当前结果区改成“生成中”或“生成失败”，不得改变当前会话的运行计时；当前为文生视频且模型另有图片模式时，应显示“切换并上传参考图”，选择文件后自动切换到图片能力并正常展示素材。
 - 视频创作台模式切换上传：从文生视频点击“切换并上传参考图”后，即使文件选择器在 React 新渲染提交前打开，文件选定时也必须按配置仓库中的最新图片模式计算数量，不得继续用旧的 `maxImages=0` 丢弃图片；存储失败时应显示具体错误。
 - 浏览器 IndexedDB schema 修复：已有 `infinite-canvas` 数据库只包含部分 stores 时，刷新后应保留现有数据并通过一次版本升级补齐 `image_files`、`media_files`、`agent_chat_messages`、`image_generation_logs`、`video_generation_logs` 和 `prompt_cache`；上传参考素材及写入生成记录必须真实持久化，刷新后仍可读取，不得回退为仅当前页面有效。视频任务创建成功后，即使本地记录写入异常也必须继续查询原 task ID，且不得显示为远端生成失败。
+- 视频创作台参考素材主存储：选择图片、视频、音频或从剪贴板/资产库插入素材后，应立即 `POST /api/video-assets` 并展示返回的同源 `/video-assets/*` URL；IndexedDB 生成记录只保存 URL 与元数据，不写入素材 Blob。点击生成时应直接复用相同 URL，网络中不得出现第二次素材上传；刷新后在临时素材有效期内仍可预览并恢复任务。
 - 视频 CDN 结果与历史兼容：新任务在自有缓存 READY 后应收到 `requires_auth=false` 的 `storage.iyishow.com` 限时签名直链，Canvas 不得附加 API Token；已经保存为 `requires_auth=true` 的历史 `/v1/videos/:task_id/content` 结果必须保留路径并改写回当前 API Base URL，由当前网关代理下载，不得把网关 Token 发送给上游 UniArt 域名；缓存仍在归档时应对 HTTP 503 在约 120 秒内退避重试，不得重新生成。
 - Seedance 官方视频请求：视频创作台与画布应使用顶层 `model`、`content[]`、`duration`、`resolution`、`ratio`、`generate_audio`、`return_last_frame: false` 调用 UniArt；混合图片、视频、音频时 `content[]` 必须保持图片 → 视频 → 音频顺序并与 `@N` 一致，不得同时提交旧 `prompt`、`reference_*` 或 `metadata.*` 素材字段；参考视频总时长超过 15 秒时应在浏览器提交前拦截。
 - 图片分辨率设置：图片工作台和画布图片设置应只显示 API 语义的 1K、2K、4K 三档分辨率，不再显示 16 倍数对齐开关及 W/H 像素输入；宽高比应独立选择且不再出现附带分辨率的重复比例项，UniArt Special SKU 最终请求应提交对应的 `1k`、`2k`、`4k` 及 `aspect_ratio`。
