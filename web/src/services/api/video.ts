@@ -23,6 +23,8 @@ type VideoResponse = {
     content_type?: string;
     metadata?: { url?: string; video_url?: string } | null;
     content?: { video_url?: string; url?: string } | null;
+    noteType?: string;
+    failureReason?: { errorCode?: string } | null;
 };
 type ApiVideoResponse = VideoResponse | { code?: number | string; data?: VideoResponse | null; msg?: string; message?: string; error?: { message?: string } };
 type SeedanceTask = {
@@ -46,6 +48,12 @@ type UniArtOfficialContentPart =
 export type VideoGenerationResult = { blob?: Blob; url?: string; model?: string; channelId?: string; mimeType?: string; requiresAuth?: boolean };
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance" | "plugin"; model: string; channelId?: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
+
+class TerminalVideoTaskError extends Error {}
+
+export function isTerminalVideoTaskError(error: unknown) {
+    return error instanceof TerminalVideoTaskError;
+}
 
 /** Results for scripted (plugin) video models, which run their own create+poll in one shot at task creation. */
 const pluginVideoResults = new Map<string, VideoGenerationResult>();
@@ -82,7 +90,7 @@ export async function waitForVideoGenerationTask(config: AiConfig, task: VideoGe
             continue;
         }
         if (state.status === "completed") return state.result;
-        if (state.status === "failed") throw new Error(state.error);
+        if (state.status === "failed") throw new TerminalVideoTaskError(state.error);
         await delay(pollDelayMs, options?.signal);
     }
 }
@@ -390,7 +398,11 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
         if (video.status === "completed") {
             return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, task.channelId, aiApiUrl(config, `/videos/${task.id}/content`), true, "video/mp4") };
         }
-        if (video.status === "failed" || video.status === "cancelled") return { status: "failed", error: readApiErrorMessage(video.error?.message) || "视频生成失败" };
+        const providerFailure = readProviderFailureMessage(video);
+        if (video.status === "failed" || video.status === "cancelled" || providerFailure) {
+            const storedState = await pollStoredVideoTask(config, task, options);
+            return reconcileReportedVideoFailure(providerFailure || readApiErrorMessage(video.error?.message) || "视频生成失败", storedState);
+        }
         return { status: "pending" };
     } catch (error) {
         const status = axios.isAxiosError(error) ? error.response?.status : undefined;
@@ -400,6 +412,19 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
         }
         throw new Error(readAxiosError(error, "视频任务查询失败"));
     }
+}
+
+export function reconcileReportedVideoFailure(reportedError: string, storedState: VideoGenerationTaskState | null): VideoGenerationTaskState {
+    return storedState || { status: "failed", error: reportedError || "视频生成失败" };
+}
+
+export function readProviderFailureMessage(value: unknown) {
+    if (!value || typeof value !== "object") return "";
+    const payload = value as { noteType?: unknown; failureReason?: { errorCode?: unknown } | null };
+    const providerErrorCode = typeof payload.failureReason?.errorCode === "string" ? payload.failureReason.errorCode : "";
+    if (!providerErrorCode) return "";
+    if (providerErrorCode === "PROVIDER_TIMEOUT") return "上游生成超时，请稍后重试";
+    return payload.noteType === "PROVIDER_FAILURE" ? `上游生成失败（${providerErrorCode}）` : "";
 }
 
 export function shouldReconcileStoredVideoTaskQuery(status?: number, canceled = false, aborted = false) {
@@ -629,6 +654,8 @@ function readApiErrorMessage(value: unknown): string {
     }
     if (typeof value !== "object") return "";
     const payload = value as { msg?: unknown; message?: unknown; error?: unknown; detail?: unknown };
+    const providerFailure = readProviderFailureMessage(value);
+    if (providerFailure) return providerFailure;
     // error 可能是字符串或含 message 的对象
     const errorMsg = typeof payload.error === "string" ? payload.error : (payload.error as { message?: unknown })?.message;
     return readApiErrorMessage(payload.msg) || readApiErrorMessage(payload.message) || readApiErrorMessage(errorMsg) || readApiErrorMessage(payload.detail) || "";

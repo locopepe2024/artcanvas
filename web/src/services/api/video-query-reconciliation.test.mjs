@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { shouldReconcileStoredVideoTaskQuery } from "./video.ts";
+import { readProviderFailureMessage, reconcileReportedVideoFailure, shouldReconcileStoredVideoTaskQuery } from "./video.ts";
 
 describe("video task query reconciliation", () => {
     test("reconciles queued-task 400s and transient provider query failures", () => {
@@ -15,5 +15,18 @@ describe("video task query reconciliation", () => {
         expect(shouldReconcileStoredVideoTaskQuery(403)).toBe(false);
         expect(shouldReconcileStoredVideoTaskQuery(400, true)).toBe(false);
         expect(shouldReconcileStoredVideoTaskQuery(400, false, true)).toBe(false);
+    });
+
+    test("recognizes provider failure notes returned as successful HTTP payloads", () => {
+        expect(readProviderFailureMessage({ noteType: "PROVIDER_FAILURE", failureReason: { errorCode: "PROVIDER_TIMEOUT" } })).toBe("上游生成超时，请稍后重试");
+        expect(readProviderFailureMessage({ noteType: "PROVIDER_FAILURE", failureReason: { errorCode: "PROVIDER_OUTPUT_ERROR" } })).toBe("上游生成失败（PROVIDER_OUTPUT_ERROR）");
+        expect(readProviderFailureMessage({ status: "running" })).toBe("");
+    });
+
+    test("persistent success or progress overrides a reported provider failure", () => {
+        const completed = { status: "completed", result: { url: "https://example.com/result.mp4" } };
+        expect(reconcileReportedVideoFailure("上游生成超时", completed)).toEqual(completed);
+        expect(reconcileReportedVideoFailure("上游生成超时", { status: "pending" })).toEqual({ status: "pending" });
+        expect(reconcileReportedVideoFailure("上游生成超时", null)).toEqual({ status: "failed", error: "上游生成超时" });
     });
 });
