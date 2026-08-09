@@ -16,6 +16,7 @@ import { resolveUniArtReferenceLimits, uniArtVideoSubmissionError } from "@/lib/
 import { deleteStoredMedia, resolveMediaUrl, uploadMediaFile } from "@/services/file-storage";
 import { resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { createVideoGenerationTask, isRetryableVideoTaskQueryError, storeGeneratedVideo, waitForVideoGenerationTask, type VideoGenerationTask } from "@/services/api/video";
+import { claimVideoLogRecovery } from "@/lib/video-log-recovery";
 import { useAssetStore } from "@/stores/use-asset-store";
 import { useWorkbenchAgentStore } from "@/stores/use-workbench-agent-store";
 import { modelOptionLabel, modelOptionName, useConfigStore, useEffectiveConfig, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
@@ -80,6 +81,7 @@ export default function VideoPage() {
     const fileInputTargetRef = useRef<"all" | "image" | "video" | "audio">("all");
     const dragDepthRef = useRef(0);
     const activeLogIdsRef = useRef<Set<string>>(new Set());
+    const attemptedLogRecoveryRef = useRef<Set<string>>(new Set());
     const recoverableLogsRef = useRef<GenerationLog[]>([]);
     const config = useConfigStore((state) => state.config);
     const effectiveConfig = useEffectiveConfig();
@@ -439,7 +441,6 @@ export default function VideoPage() {
     const refreshLogs = async (resumePending = true) => {
         const nextLogs = await readStoredLogs((rawLogs) => {
             recoverableLogsRef.current = rawLogs;
-            if (resumePending) resumePendingLogs(rawLogs);
         });
         setLogs(nextLogs);
         if (resumePending) resumePendingLogs(nextLogs);
@@ -448,13 +449,16 @@ export default function VideoPage() {
 
     const resumePendingLogs = (items: GenerationLog[]) => {
         for (const log of items) {
-            if (log.task && (log.status === "生成中" || isRecoverablePollingFailure(log))) void pollGenerationLog(log);
+            if (!log.task || (log.status !== "生成中" && !isRecoverablePollingFailure(log))) continue;
+            if (!claimVideoLogRecovery(attemptedLogRecoveryRef.current, log.id, log.task.id)) continue;
+            void pollGenerationLog(log, undefined, undefined, false);
         }
     };
 
-    const pollGenerationLog = async (log: GenerationLog, configOverride?: AiConfig, agentTaskId?: string) => {
+    const pollGenerationLog = async (log: GenerationLog, configOverride?: AiConfig, agentTaskId?: string, notifyFailure = true) => {
         if (!log.task || activeLogIdsRef.current.has(log.id)) return;
         const task = log.task;
+        claimVideoLogRecovery(attemptedLogRecoveryRef.current, log.id, task.id);
         const latestConfig = { ...useConfigStore.getState().config, channelMode: "local" as const };
         const taskConfig = buildVideoConfig({ ...latestConfig, ...log.config }, task.model || log.model);
         if (!isAiConfigReady(configOverride || taskConfig, (configOverride || taskConfig).model)) return;
@@ -481,14 +485,14 @@ export default function VideoPage() {
             };
             setResults([{ id: nextVideo.id, status: "success", video: nextVideo }]);
             if (agentTaskId) updateAgentTask(agentTaskId, { status: "succeeded", successCount: 1, failCount: 0, error: undefined });
-            await saveLog({ ...log, status: "成功", durationMs: nextVideo.durationMs, video: nextVideo, error: undefined });
+            await saveLog({ ...log, status: "成功", durationMs: nextVideo.durationMs, video: nextVideo, error: undefined }, false);
             message.success("视频已生成");
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "生成失败";
             setResults([{ id: log.id, status: "failed", error: errorMessage }]);
             if (agentTaskId) updateAgentTask(agentTaskId, { status: "failed", successCount: 0, failCount: 1, error: errorMessage });
-            await saveLog({ ...log, status: "失败", durationMs: Date.now() - log.createdAt, error: errorMessage });
-            message.error(errorMessage);
+            await saveLog({ ...log, status: "失败", durationMs: Date.now() - log.createdAt, error: errorMessage }, false);
+            if (notifyFailure) message.error(errorMessage);
         } finally {
             activeLogIdsRef.current.delete(log.id);
             if (!activeLogIdsRef.current.size) {

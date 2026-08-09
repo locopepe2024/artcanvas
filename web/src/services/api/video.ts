@@ -441,7 +441,7 @@ async function pollStoredVideoTask(config: AiConfig, task: VideoGenerationTask, 
             if (!resultUrl) return { status: "failed", error: "视频任务已完成，但持久任务记录没有结果地址" };
             return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, task.channelId, resultUrl, payload.data.requires_auth, payload.data.content_type) };
         }
-        if (status === "FAILURE") return { status: "failed", error: payload.data.fail_reason || "视频生成失败" };
+        if (status === "FAILURE") return { status: "failed", error: readApiErrorMessage(payload.data.fail_reason) || payload.data.fail_reason || "视频生成失败" };
         return { status: "pending" };
     } catch (error) {
         if (axios.isCancel(error) || options?.signal?.aborted) throw error;
