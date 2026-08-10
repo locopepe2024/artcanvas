@@ -40,6 +40,24 @@ func TestUploadAndPublicRead(t *testing.T) {
 	}
 }
 
+func TestUploadDetectedWaveAudio(t *testing.T) {
+	root := t.TempDir()
+	server := newAssetServer(config{root: root, ttl: time.Hour, maxTotalBytes: 1 << 20, uploadsPerHour: 10})
+	wave := append([]byte("RIFF"), []byte{36, 0, 0, 0}...)
+	wave = append(wave, []byte("WAVEfmt ")...)
+	wave = append(wave, bytes.Repeat([]byte{0}, 32)...)
+	body, contentType := multipartFile(t, "reference.wav", wave)
+	request := httptest.NewRequest(http.MethodPost, "/api/video-assets", body)
+	request.Header.Set("Content-Type", contentType)
+	request.Host = "canvas.example"
+	request.Header.Set("Origin", "https://canvas.example")
+	response := httptest.NewRecorder()
+	server.upload(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("wave upload status=%d body=%s detected=%s", response.Code, response.Body.String(), http.DetectContentType(wave))
+	}
+}
+
 func TestExpiredAssetReturnsNotFound(t *testing.T) {
 	root := t.TempDir()
 	id := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png"

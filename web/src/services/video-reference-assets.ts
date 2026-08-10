@@ -15,7 +15,10 @@ export async function uploadVideoReferenceAsset(input: File | Blob, fileName?: s
     const metadataPromise = readReferenceMetadata(file);
     const body = new FormData();
     body.append("file", file);
-    const response = await axios.post<{ path?: string }>("/api/video-assets", body, { signal });
+    const response = await axios.post<{ path?: string }>("/api/video-assets", body, { signal }).catch((error: unknown) => {
+        if (axios.isAxiosError<{ error?: { message?: string } }>(error)) throw new Error(error.response?.data?.error?.message || `参考素材上传失败（HTTP ${error.response?.status || "网络错误"}）`);
+        throw error;
+    });
     if (!response.data.path) throw new Error("参考素材上传接口没有返回访问地址");
     return {
         url: new URL(response.data.path, window.location.origin).toString(),

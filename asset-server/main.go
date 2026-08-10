@@ -326,7 +326,7 @@ func mediaRule(contentType string) (int64, string, bool) {
 	}{
 		"image/jpeg": {imageMax, "jpg"}, "image/png": {imageMax, "png"}, "image/webp": {imageMax, "webp"}, "image/gif": {imageMax, "gif"},
 		"video/mp4": {videoMax, "mp4"}, "video/quicktime": {videoMax, "mov"}, "video/webm": {videoMax, "webm"},
-		"audio/mpeg": {audioMax, "mp3"}, "audio/wav": {audioMax, "wav"}, "audio/x-wav": {audioMax, "wav"}, "audio/mp4": {audioMax, "m4a"}, "audio/x-m4a": {audioMax, "m4a"},
+		"audio/mpeg": {audioMax, "mp3"}, "audio/wav": {audioMax, "wav"}, "audio/wave": {audioMax, "wav"}, "audio/x-wav": {audioMax, "wav"}, "audio/vnd.wave": {audioMax, "wav"}, "audio/mp4": {audioMax, "m4a"}, "audio/x-m4a": {audioMax, "m4a"},
 	}
 	rule, ok := rules[contentType]
 	return rule.limit, rule.ext, ok
