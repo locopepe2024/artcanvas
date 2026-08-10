@@ -135,7 +135,12 @@ func (s *assetServer) upload(w http.ResponseWriter, r *http.Request) {
 	prefix = prefix[:n]
 	contentType := strings.ToLower(strings.TrimSpace(strings.Split(http.DetectContentType(prefix), ";")[0]))
 	if contentType == "application/octet-stream" {
-		contentType = strings.ToLower(strings.TrimSpace(strings.Split(mime.TypeByExtension(strings.ToLower(filepath.Ext(fileHeader.Filename))), ";")[0]))
+		declaredType := strings.ToLower(strings.TrimSpace(strings.Split(fileHeader.Header.Get("Content-Type"), ";")[0]))
+		if _, extension, declaredOK := mediaRule(declaredType); declaredOK && strings.EqualFold(filepath.Ext(fileHeader.Filename), "."+extension) {
+			contentType = declaredType
+		} else {
+			contentType = strings.ToLower(strings.TrimSpace(strings.Split(mime.TypeByExtension(strings.ToLower(filepath.Ext(fileHeader.Filename))), ";")[0]))
+		}
 	}
 	limit, extension, ok := mediaRule(contentType)
 	if !ok {
@@ -331,7 +336,7 @@ func mediaRule(contentType string) (int64, string, bool) {
 		ext   string
 	}{
 		"image/jpeg": {imageMax, "jpg"}, "image/png": {imageMax, "png"}, "image/webp": {imageMax, "webp"}, "image/gif": {imageMax, "gif"},
-		"video/mp4": {videoMax, "mp4"}, "video/quicktime": {videoMax, "mov"}, "video/webm": {videoMax, "webm"},
+		"video/mp4": {videoMax, "mp4"}, "application/mp4": {videoMax, "mp4"}, "video/x-m4v": {videoMax, "mp4"}, "video/quicktime": {videoMax, "mov"}, "video/webm": {videoMax, "webm"},
 		"audio/mpeg": {audioMax, "mp3"}, "audio/wav": {audioMax, "wav"}, "audio/wave": {audioMax, "wav"}, "audio/x-wav": {audioMax, "wav"}, "audio/vnd.wave": {audioMax, "wav"}, "audio/mp4": {audioMax, "m4a"}, "audio/x-m4a": {audioMax, "m4a"},
 	}
 	rule, ok := rules[contentType]

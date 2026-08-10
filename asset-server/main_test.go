@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"path/filepath"
 	"strings"
@@ -70,6 +72,35 @@ func TestUploadDetectedWaveAudio(t *testing.T) {
 	}
 	if got := readResponse.Header().Get("Content-Type"); got != "audio/wav" {
 		t.Fatalf("wave read content-type=%q", got)
+	}
+}
+
+func TestUploadMP4UsingMatchingDeclaredTypeWhenDetectionIsGeneric(t *testing.T) {
+	root := t.TempDir()
+	server := newAssetServer(config{root: root, ttl: time.Hour, maxTotalBytes: 1 << 20, uploadsPerHour: 10})
+	body, contentType := multipartFileWithType(t, "reference.mp4", "video/mp4", bytes.Repeat([]byte{0}, 1024))
+	request := httptest.NewRequest(http.MethodPost, "/api/video-assets", body)
+	request.Header.Set("Content-Type", contentType)
+	request.Host = "canvas.example"
+	request.Header.Set("Origin", "https://canvas.example")
+	response := httptest.NewRecorder()
+	server.upload(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("mp4 upload status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestRejectGenericContentWhenDeclaredTypeDoesNotMatchExtension(t *testing.T) {
+	server := newAssetServer(config{root: t.TempDir(), ttl: time.Hour, maxTotalBytes: 1 << 20, uploadsPerHour: 10})
+	body, contentType := multipartFileWithType(t, "reference.txt", "video/mp4", bytes.Repeat([]byte{0}, 1024))
+	request := httptest.NewRequest(http.MethodPost, "/api/video-assets", body)
+	request.Header.Set("Content-Type", contentType)
+	request.Host = "canvas.example"
+	request.Header.Set("Origin", "https://canvas.example")
+	response := httptest.NewRecorder()
+	server.upload(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("mismatched upload status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 
@@ -152,6 +183,26 @@ func multipartFile(t *testing.T, name string, content []byte) (*bytes.Buffer, st
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
 	part, err := writer.CreateFormFile("file", name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := part.Write(content); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return body, writer.FormDataContentType()
+}
+
+func multipartFileWithType(t *testing.T, name string, contentType string, content []byte) (*bytes.Buffer, string) {
+	t.Helper()
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", fmt.Sprintf(`form-data; name="file"; filename="%s"`, name))
+	header.Set("Content-Type", contentType)
+	part, err := writer.CreatePart(header)
 	if err != nil {
 		t.Fatal(err)
 	}
