@@ -1,16 +1,18 @@
 import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, ClipboardPaste, Download, FolderPlus, History, LoaderCircle, Music2, Plus, RefreshCw, SlidersHorizontal, Sparkles, Trash2, Upload, VideoIcon } from "lucide-react";
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { App, Button, Checkbox, Drawer, Empty, Input, Modal, Tag, Typography } from "antd";
 import { nanoid } from "nanoid";
 import { saveAs } from "file-saver";
 
 import { AssetPickerModal, type InsertAssetPayload } from "@/components/canvas/asset-picker-modal";
+import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
 import { ModelPicker } from "@/components/model-picker";
 import { PromptSelectDialog } from "@/components/prompts/prompt-select-dialog";
 import { VideoReferenceModeSelector, VideoSettingsPanel, normalizeVideoRatioValue, normalizeVideoResolutionValue, videoResolutionLabel, videoSizeLabel } from "@/components/video-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS, SEEDANCE_VIDEO_MIME_TYPES } from "@/lib/seedance-video";
+import { buildVideoReferenceMentions } from "@/lib/video-reference-mentions";
 import { preferredUniArtImageReferenceMode, resolveUniArtReferenceLimits, uniArtVideoSubmissionError } from "@/lib/uniart-video";
 import { collectMediaStorageKeys, deleteStoredMedia, resolveMediaUrl } from "@/services/file-storage";
 import { collectImageStorageKeys, deleteStoredImages, resolveImageUrl } from "@/services/image-storage";
@@ -139,6 +141,7 @@ export default function VideoPage() {
                 : referenceLimits.maxImages
                   ? "可添加多张参考图片"
                   : "该模型未声明参考图片能力";
+    const promptMentionReferences = useMemo(() => buildVideoReferenceMentions(references, videoReferences, audioReferences, referenceLimits.mode), [references, videoReferences, audioReferences, referenceLimits.mode]);
     const submissionError = uniArtCapability
         ? uniArtVideoSubmissionError(referenceLimits.mode, prompt, { images: references.length, videos: videoReferences.length, audios: audioReferences.length })
         : prompt.trim()
@@ -714,7 +717,16 @@ export default function VideoPage() {
                                         </Button>
                                     </div>
                                 </div>
-                                <Input.TextArea value={prompt} onChange={(event) => setPrompt(event.target.value)} rows={7} placeholder="描述镜头运动、主体动作、场景氛围和画面风格" />
+                                <CanvasResourceMentionTextarea
+                                    value={prompt}
+                                    references={promptMentionReferences}
+                                    onChange={setPrompt}
+                                    containerClassName="min-h-[168px]"
+                                    className="thin-scrollbar block min-h-[168px] w-full resize-y rounded-md border border-stone-300 bg-transparent px-3 py-2 text-sm leading-6 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 dark:border-stone-700"
+                                    style={{ color: theme.node.text }}
+                                    placeholder="描述镜头运动、主体动作、场景氛围和画面风格；输入 @ 引用素材"
+                                    aria-label="视频提示词，输入 @ 可选择参考素材"
+                                />
                             </div>
 
                             <VideoReferenceModeSelector config={effectiveConfig} model={model} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} />

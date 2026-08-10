@@ -54,12 +54,12 @@ export const CanvasResourceMentionTextarea = forwardRef<HTMLTextAreaElement, Pro
 
     const syncMention = (nextValue: string, cursor: number) => {
         const prefix = nextValue.slice(0, cursor);
-        const match = /(^|\s)@([^\s@]*)$/.exec(prefix);
+        const match = /@([^\s@]*)$/.exec(prefix);
         if (!match || !references.some((item) => item.active)) {
             closeMention();
             return;
         }
-        setMention({ start: cursor - match[2].length - 1, query: match[2] });
+        setMention({ start: cursor - match[0].length, query: match[1] });
         setActiveIndex(0);
     };
 
