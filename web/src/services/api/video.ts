@@ -5,6 +5,7 @@ import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { isCanvasVideoAssetUrl, uploadVideoReferenceAsset } from "@/services/video-reference-assets";
+import { canvasVideoResultUrl } from "@/services/video-result-proxy";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { resolveUniArtReferenceLimits, resolveUniArtVideoParams, uniArtVideoSubmissionError, type UniArtVideoCapability } from "@/lib/uniart-video";
 import { buildApiUrl, decodeChannelModel, encodeChannelModel, isChannelModelValue, modelCapabilityOf, modelOptionName, normalizeModelOptionValue, resolveModelRequestConfig, resolveModelScript, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
@@ -185,14 +186,15 @@ export async function storeGeneratedVideo(result: VideoGenerationResult, config?
                 throw new Error(`视频已生成，但下载到本地失败：${readAxiosError(error, "视频下载失败")}`);
             }
         }
+        const downloadUrl = canvasVideoResultUrl(result.url);
         const controller = new AbortController();
         const timeout = window.setTimeout(() => controller.abort(), 20000);
         try {
-            const response = await fetch(result.url, { signal: controller.signal });
+            const response = await fetch(downloadUrl, { signal: controller.signal });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             return await withTimeout(uploadMediaFile(await response.blob(), "video"), 10000, "视频本地缓存超时");
         } catch {
-            return { url: result.url, storageKey: "", bytes: 0, mimeType: result.mimeType || "video/mp4" };
+            return { url: downloadUrl, storageKey: "", bytes: 0, mimeType: result.mimeType || "video/mp4" };
         } finally {
             window.clearTimeout(timeout);
         }
