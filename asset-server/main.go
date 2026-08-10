@@ -216,7 +216,13 @@ func (s *assetServer) read(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", mime.TypeByExtension(filepath.Ext(id)))
+	contentType := mime.TypeByExtension(filepath.Ext(id))
+	if strings.EqualFold(filepath.Ext(id), ".wav") {
+		contentType = "audio/wav"
+	}
+	if contentType != "" {
+		w.Header().Set("Content-Type", contentType)
+	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", max(0, int(time.Until(expiresAt).Seconds()))))
 	http.ServeContent(w, r, id, info.ModTime(), file)

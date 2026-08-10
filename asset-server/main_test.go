@@ -56,6 +56,21 @@ func TestUploadDetectedWaveAudio(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("wave upload status=%d body=%s detected=%s", response.Code, response.Body.String(), http.DetectContentType(wave))
 	}
+	var payload struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	readRequest := httptest.NewRequest(http.MethodGet, payload.Path, nil)
+	readResponse := httptest.NewRecorder()
+	server.read(readResponse, readRequest)
+	if readResponse.Code != http.StatusOK {
+		t.Fatalf("wave read status=%d body=%s", readResponse.Code, readResponse.Body.String())
+	}
+	if got := readResponse.Header().Get("Content-Type"); got != "audio/wav" {
+		t.Fatalf("wave read content-type=%q", got)
+	}
 }
 
 func TestExpiredAssetReturnsNotFound(t *testing.T) {
