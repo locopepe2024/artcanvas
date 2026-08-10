@@ -88,6 +88,17 @@ func TestUploadMP4UsingMatchingDeclaredTypeWhenDetectionIsGeneric(t *testing.T) 
 	if response.Code != http.StatusOK {
 		t.Fatalf("mp4 upload status=%d body=%s", response.Code, response.Body.String())
 	}
+	var payload struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	readResponse := httptest.NewRecorder()
+	server.read(readResponse, httptest.NewRequest(http.MethodGet, payload.Path, nil))
+	if got := readResponse.Header().Get("Content-Type"); got != "video/mp4" {
+		t.Fatalf("mp4 read content-type=%q", got)
+	}
 }
 
 func TestRejectGenericContentWhenDeclaredTypeDoesNotMatchExtension(t *testing.T) {

@@ -221,10 +221,7 @@ func (s *assetServer) read(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	contentType := mime.TypeByExtension(filepath.Ext(id))
-	if strings.EqualFold(filepath.Ext(id), ".wav") {
-		contentType = "audio/wav"
-	}
+	contentType := assetContentType(filepath.Ext(id))
 	if contentType != "" {
 		w.Header().Set("Content-Type", contentType)
 	}
@@ -341,6 +338,15 @@ func mediaRule(contentType string) (int64, string, bool) {
 	}
 	rule, ok := rules[contentType]
 	return rule.limit, rule.ext, ok
+}
+
+func assetContentType(extension string) string {
+	types := map[string]string{
+		".jpg": "image/jpeg", ".png": "image/png", ".webp": "image/webp", ".gif": "image/gif",
+		".mp4": "video/mp4", ".mov": "video/quicktime", ".webm": "video/webm",
+		".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4",
+	}
+	return types[strings.ToLower(extension)]
 }
 
 func sameOrigin(r *http.Request) bool {
