@@ -5,7 +5,7 @@ import { dataUrlToFile } from "@/lib/image-utils";
 import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/file-storage";
 import { imageToDataUrl } from "@/services/image-storage";
 import { isCanvasVideoAssetUrl, uploadVideoReferenceAsset } from "@/services/video-reference-assets";
-import { canvasVideoResultUrl } from "@/services/video-result-proxy";
+import { canvasAuthenticatedVideoResultUrl, canvasVideoResultUrl } from "@/services/video-result-proxy";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
 import { resolveUniArtReferenceLimits, resolveUniArtVideoParams, uniArtVideoSubmissionError, type UniArtVideoCapability } from "@/lib/uniart-video";
 import { buildApiUrl, decodeChannelModel, encodeChannelModel, isChannelModelValue, modelCapabilityOf, modelOptionName, normalizeModelOptionValue, resolveModelRequestConfig, resolveModelScript, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
@@ -176,14 +176,20 @@ export async function storeGeneratedVideo(result: VideoGenerationResult, config?
     if (result.url) {
         if (result.requiresAuth) {
             if (!config) throw new Error("视频已生成，但缺少下载鉴权配置");
+            const requestConfig = videoDownloadRequestConfig(config, result);
+            const downloadUrl = authenticatedVideoDownloadUrl(requestConfig, result.url);
+            let content: Blob;
             try {
-                const requestConfig = videoDownloadRequestConfig(config, result);
-                const content = await downloadAuthenticatedVideo(authenticatedVideoDownloadUrl(requestConfig, result.url), requestConfig, options);
-                await assertVideoBlob(content.data);
-                return await uploadMediaFile(content.data, "video");
+                content = (await downloadAuthenticatedVideo(downloadUrl, requestConfig, options)).data;
+                await assertVideoBlob(content);
             } catch (error) {
                 if (axios.isCancel(error) || options?.signal?.aborted) throw error;
                 throw new Error(`视频已生成，但下载到本地失败：${readAxiosError(error, "视频下载失败")}`);
+            }
+            try {
+                return await uploadMediaFile(content, "video");
+            } catch {
+                return { url: downloadUrl, storageKey: "", bytes: content.size, mimeType: content.type || result.mimeType || "video/mp4" };
             }
         }
         const downloadUrl = canvasVideoResultUrl(result.url);
@@ -213,7 +219,8 @@ function authenticatedVideoDownloadUrl(config: AiConfig, resultUrl: string) {
     try {
         const target = new URL(resultUrl, buildApiUrl(config.baseUrl, "/"));
         if (!/\/videos\/[^/]+\/content\/?$/i.test(target.pathname)) return target.toString();
-        return new URL(`${target.pathname}${target.search}`, new URL(buildApiUrl(config.baseUrl, "/")).origin).toString();
+        const apiOrigin = new URL(buildApiUrl(config.baseUrl, "/")).origin;
+        return canvasAuthenticatedVideoResultUrl(new URL(`${target.pathname}${target.search}`, apiOrigin).toString(), apiOrigin);
     } catch {
         return resultUrl;
     }

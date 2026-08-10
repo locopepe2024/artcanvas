@@ -30,6 +30,7 @@ const (
 )
 
 var assetIDPattern = regexp.MustCompile(`^[0-9a-f]{64}\.(jpg|png|webp|gif|mp4|mov|webm|mp3|wav|m4a)$`)
+var videoTaskIDPattern = regexp.MustCompile(`^task_[A-Za-z0-9]+$`)
 
 type config struct {
 	root           string
@@ -44,10 +45,12 @@ type rateWindow struct {
 }
 
 type assetServer struct {
-	config    config
-	mu        sync.Mutex
-	storageMu sync.Mutex
-	windows   map[string]rateWindow
+	config              config
+	videoContentBaseURL string
+	videoContentClient  *http.Client
+	mu                  sync.Mutex
+	storageMu           sync.Mutex
+	windows             map[string]rateWindow
 }
 
 func main() {
@@ -74,13 +77,14 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", server.health)
 	mux.HandleFunc("/api/video-assets", server.upload)
+	mux.HandleFunc("/api/video-content-proxy/", server.proxyVideoContent)
 	mux.HandleFunc("/video-assets/", server.read)
 	log.Printf("ArtCanvas asset server listening on 127.0.0.1:3001, root=%s", server.config.root)
 	log.Fatal((&http.Server{Addr: "127.0.0.1:3001", Handler: mux, ReadHeaderTimeout: 10 * time.Second, MaxHeaderBytes: 1 << 20}).ListenAndServe())
 }
 
 func newAssetServer(value config) *assetServer {
-	return &assetServer{config: value, windows: map[string]rateWindow{}}
+	return &assetServer{config: value, videoContentBaseURL: "https://uniart.fun", videoContentClient: newVideoContentClient(), windows: map[string]rateWindow{}}
 }
 
 func (s *assetServer) health(w http.ResponseWriter, _ *http.Request) {
@@ -216,6 +220,68 @@ func (s *assetServer) read(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", fmt.Sprintf("public, max-age=%d", max(0, int(time.Until(expiresAt).Seconds()))))
 	http.ServeContent(w, r, id, info.ModTime(), file)
+}
+
+func (s *assetServer) proxyVideoContent(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	taskID := strings.TrimPrefix(r.URL.Path, "/api/video-content-proxy/")
+	if !videoTaskIDPattern.MatchString(taskID) {
+		http.NotFound(w, r)
+		return
+	}
+	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
+	if !strings.HasPrefix(authorization, "Bearer ") || strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer ")) == "" {
+		writeError(w, http.StatusUnauthorized, "authorization is required")
+		return
+	}
+	upstreamURL := strings.TrimRight(s.videoContentBaseURL, "/") + "/v1/videos/" + taskID + "/content"
+	request, err := http.NewRequestWithContext(r.Context(), r.Method, upstreamURL, nil)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "prepare video download failed")
+		return
+	}
+	request.Header.Set("Authorization", authorization)
+	for _, name := range []string{"Range", "If-Range"} {
+		if value := r.Header.Get(name); value != "" {
+			request.Header.Set(name, value)
+		}
+	}
+	response, err := s.videoContentClient.Do(request)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "download video failed")
+		return
+	}
+	defer response.Body.Close()
+	for _, name := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified", "Cache-Control"} {
+		if value := response.Header.Get(name); value != "" {
+			w.Header().Set(name, value)
+		}
+	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(response.StatusCode)
+	if r.Method != http.MethodHead {
+		io.Copy(w, response.Body)
+	}
+}
+
+func newVideoContentClient() *http.Client {
+	return &http.Client{
+		Timeout: 130 * time.Second,
+		CheckRedirect: func(request *http.Request, via []*http.Request) error {
+			if len(via) > 3 {
+				return errors.New("too many video redirects")
+			}
+			if request.URL.Scheme != "https" || !strings.EqualFold(request.URL.Hostname(), "storage.iyishow.com") || !strings.HasPrefix(request.URL.Path, "/uniart-cache/videos/") {
+				return errors.New("video redirect target is not allowed")
+			}
+			request.Header.Del("Authorization")
+			return nil
+		},
+	}
 }
 
 func (s *assetServer) allowUpload(ip string, now time.Time) bool {

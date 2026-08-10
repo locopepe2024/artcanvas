@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -64,6 +66,51 @@ func TestUploadRateLimit(t *testing.T) {
 	server := newAssetServer(config{root: t.TempDir(), ttl: time.Hour, maxTotalBytes: 1 << 20, uploadsPerHour: 1})
 	if !server.allowUpload("203.0.113.1", time.Now()) || server.allowUpload("203.0.113.1", time.Now()) {
 		t.Fatal("rate limit did not close after configured count")
+	}
+}
+
+func TestAuthenticatedVideoContentProxy(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != "/v1/videos/task_abc123/content" || r.Header.Get("Authorization") != "Bearer test-token" || r.Header.Get("Range") != "bytes=0-3" {
+			t.Fatalf("unexpected upstream request: path=%s auth=%s range=%s", r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("Range"))
+		}
+		return &http.Response{
+			StatusCode: http.StatusPartialContent,
+			Header:     http.Header{"Content-Type": {"video/mp4"}, "Content-Range": {"bytes 0-3/8"}},
+			Body:       io.NopCloser(strings.NewReader("video")),
+			Request:    r,
+		}, nil
+	})}
+
+	server := newAssetServer(config{root: t.TempDir(), ttl: time.Hour, maxTotalBytes: 1 << 20, uploadsPerHour: 10})
+	server.videoContentBaseURL = "https://uniart.test"
+	server.videoContentClient = client
+	request := httptest.NewRequest(http.MethodGet, "/api/video-content-proxy/task_abc123", nil)
+	request.Header.Set("Authorization", "Bearer test-token")
+	request.Header.Set("Range", "bytes=0-3")
+	response := httptest.NewRecorder()
+	server.proxyVideoContent(response, request)
+	if response.Code != http.StatusPartialContent || response.Header().Get("Content-Range") != "bytes 0-3/8" || response.Body.String() != "video" {
+		t.Fatalf("proxy status=%d range=%s body=%s", response.Code, response.Header().Get("Content-Range"), response.Body.String())
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
+}
+
+func TestVideoRedirectDropsAuthorizationAndRejectsOtherTargets(t *testing.T) {
+	client := newVideoContentClient()
+	allowed := httptest.NewRequest(http.MethodGet, "https://storage.iyishow.com/uniart-cache/videos/task/result.mp4?sign=x", nil)
+	allowed.Header.Set("Authorization", "Bearer secret")
+	if err := client.CheckRedirect(allowed, []*http.Request{{}}); err != nil || allowed.Header.Get("Authorization") != "" {
+		t.Fatalf("allowed redirect err=%v auth=%q", err, allowed.Header.Get("Authorization"))
+	}
+	rejected := httptest.NewRequest(http.MethodGet, "https://example.com/uniart-cache/videos/task/result.mp4", nil)
+	if err := client.CheckRedirect(rejected, []*http.Request{{}}); err == nil {
+		t.Fatal("untrusted redirect target was accepted")
 	}
 }
 
