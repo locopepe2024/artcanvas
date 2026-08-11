@@ -184,6 +184,8 @@ export async function storeGeneratedVideo(result: VideoGenerationResult, config?
                 await assertVideoBlob(content);
             } catch (error) {
                 if (axios.isCancel(error) || options?.signal?.aborted) throw error;
+                const taskFailure = await reconcileAuthenticatedVideoDownloadFailure(requestConfig, result, options);
+                if (taskFailure) throw new Error(taskFailure);
                 throw new Error(`视频已生成，但下载到本地失败：${readAxiosError(error, "视频下载失败")}`);
             }
             try {
@@ -438,6 +440,7 @@ export function readProviderFailureMessage(value: unknown) {
     const providerErrorCode = typeof payload.failureReason?.errorCode === "string" ? payload.failureReason.errorCode : "";
     if (!providerErrorCode) return "";
     if (providerErrorCode === "PROVIDER_TIMEOUT") return "上游生成超时，请稍后重试";
+    if (providerErrorCode === "PROVIDER_MODERATION_ERROR") return "视频内容安全审核未通过，请修改提示词或随机种子后重试";
     return payload.noteType === "PROVIDER_FAILURE" ? `上游生成失败（${providerErrorCode}）` : "";
 }
 
@@ -668,6 +671,8 @@ function videoResultUrl(payload: VideoResponse | SeedanceTask) {
 function readApiErrorMessage(value: unknown): string {
     if (!value) return "";
     if (typeof value === "string") {
+        const safetyMessage = normalizeVideoSafetyFailureMessage(value);
+        if (safetyMessage) return safetyMessage;
         try {
             const parsed = JSON.parse(value);
             const inner = readApiErrorMessage(parsed) || value;
@@ -685,6 +690,27 @@ function readApiErrorMessage(value: unknown): string {
     // error 可能是字符串或含 message 的对象
     const errorMsg = typeof payload.error === "string" ? payload.error : (payload.error as { message?: unknown })?.message;
     return readApiErrorMessage(payload.msg) || readApiErrorMessage(payload.message) || readApiErrorMessage(errorMsg) || readApiErrorMessage(payload.detail) || "";
+}
+
+export function normalizeVideoSafetyFailureMessage(value: string) {
+    return /video[_ ]unsafe|video content safety blocked|provider_moderation_error/i.test(value || "") ? "视频内容安全审核未通过，请修改提示词或随机种子后重试" : "";
+}
+
+export function videoTaskIdFromResultUrl(value: string) {
+    try {
+        const match = new URL(value, "https://canvas.invalid").pathname.match(/\/videos\/(task_[A-Za-z0-9]+)\/content\/?$/i);
+        return match?.[1] || "";
+    } catch {
+        return "";
+    }
+}
+
+async function reconcileAuthenticatedVideoDownloadFailure(config: AiConfig, result: VideoGenerationResult, options?: RequestOptions) {
+    const taskID = videoTaskIdFromResultUrl(result.url || "");
+    if (!taskID) return "";
+    const model = result.model || config.model || config.videoModel;
+    const state = await pollStoredVideoTask(config, { id: taskID, provider: "openai", model, channelId: result.channelId }, options);
+    return state?.status === "failed" ? state.error : "";
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string) {

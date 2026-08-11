@@ -18,6 +18,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 - 视频创作台素材 `@` 菜单：上传图片、视频或音频后，在提示词任意位置输入 `@`（包括紧接中文文字）应弹出当前素材缩略图列表；点击或使用方向键加回车选择后插入连续 `@n`，编号始终按图片 → 视频 → 音频排列，首尾帧菜单显示角色文案但提交文本仍为标准 `@1`、`@2`。删除或重排素材后，菜单及高亮编号应同步刷新。
 - 视频失败终态优先级：当 `GET /v1/videos/:task_id` 同时返回 `status=failed`、provider failure 和残留 `result_url=/content` 时，视频创作台与画布必须显示明确失败原因，不得先按 URL 标记成功或继续下载内容；持久任务若仍为进行中则继续等待，若为失败则以持久失败为准。
 - 画布失败任务恢复：节点同时保存 `videoTask` 和 `videoResult` 时，刷新应先查询 task ID，而不是直接重新下载历史 URL；即使节点曾误存为 `success`，只要没有视频内容且仍有 task ID 也必须重新对账。任务确认失败后应清除两项恢复数据并显示失败原因。`task_rUaOKV5p5I2oVqf3757gV8f3jXQ2d5zh` 应恢复为 `PROVIDER_MODERATION_ERROR`，不得继续显示成功或“重新下载”。
+- 视频内容安全失败：受保护 `/content` 下载返回 400，但持久任务的 `fail_reason` 为 `video content safety blocked: 451`、`video_unsafe` 或 `PROVIDER_MODERATION_ERROR` 时，Canvas 应重新对账 task ID 并显示“视频内容安全审核未通过，请修改提示词或随机种子后重试”，不得显示“视频已生成，但下载到本地失败”。
 - 视频创作台参考素材主存储：选择图片、视频、音频或从剪贴板/资产库插入素材后，应立即 `POST /api/video-assets` 并展示返回的同源 `/video-assets/*` URL；IndexedDB 生成记录只保存 URL 与元数据，不写入素材 Blob。点击生成时应直接复用相同 URL，网络中不得出现第二次素材上传；刷新后在临时素材有效期内仍可预览并恢复任务。
 - 视频 CDN 结果与历史兼容：新任务在自有缓存 READY 后应收到 `requires_auth=false` 的 `storage.iyishow.com` 限时签名直链，Canvas 不得附加 API Token；已经保存为 `requires_auth=true` 的历史 `/v1/videos/:task_id/content` 结果必须保留路径并改写回当前 API Base URL，由当前网关代理下载，不得把网关 Token 发送给上游 UniArt 域名；缓存仍在归档时应对 HTTP 503 在约 120 秒内退避重试，不得重新生成。
 - Seedance 官方视频请求：视频创作台与画布应使用顶层 `model`、`content[]`、`duration`、`resolution`、`ratio`、`generate_audio`、`return_last_frame: false` 调用 UniArt；混合图片、视频、音频时 `content[]` 必须保持图片 → 视频 → 音频顺序并与 `@N` 一致，不得同时提交旧 `prompt`、`reference_*` 或 `metadata.*` 素材字段；参考视频总时长超过 15 秒时应在浏览器提交前拦截。

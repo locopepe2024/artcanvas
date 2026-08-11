@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { readProviderFailureMessage, readReportedOpenAIVideoFailure, reconcileReportedVideoFailure, shouldReconcileStoredVideoTaskQuery } from "./video.ts";
+import { normalizeVideoSafetyFailureMessage, readProviderFailureMessage, readReportedOpenAIVideoFailure, reconcileReportedVideoFailure, shouldReconcileStoredVideoTaskQuery, videoTaskIdFromResultUrl } from "./video.ts";
 
 describe("video task query reconciliation", () => {
     test("reconciles queued-task 400s and transient provider query failures", () => {
@@ -39,7 +39,14 @@ describe("video task query reconciliation", () => {
                 message: JSON.stringify({ noteType: "PROVIDER_FAILURE", failureReason: { errorCode: "PROVIDER_MODERATION_ERROR" } }),
             },
         };
-        expect(readReportedOpenAIVideoFailure(response)).toBe("上游生成失败（PROVIDER_MODERATION_ERROR）");
+        expect(readReportedOpenAIVideoFailure(response)).toBe("视频内容安全审核未通过，请修改提示词或随机种子后重试");
         expect(readReportedOpenAIVideoFailure({ status: "completed", result_url: "/v1/videos/task_ok/content" })).toBe("");
+    });
+
+    test("maps content safety failures and recovers the task id from content URLs", () => {
+        expect(normalizeVideoSafetyFailureMessage('video content safety blocked: 451 {"error_code":"video_unsafe"}')).toBe("视频内容安全审核未通过，请修改提示词或随机种子后重试");
+        expect(readProviderFailureMessage({ noteType: "PROVIDER_FAILURE", failureReason: { errorCode: "PROVIDER_MODERATION_ERROR" } })).toBe("视频内容安全审核未通过，请修改提示词或随机种子后重试");
+        expect(videoTaskIdFromResultUrl("https://uniart.fun/v1/videos/task_yCLglASVvtrUBfd40LVvLOgoqkDINYKp/content")).toBe("task_yCLglASVvtrUBfd40LVvLOgoqkDINYKp");
+        expect(videoTaskIdFromResultUrl("https://storage.example/result.mp4")).toBe("");
     });
 });
