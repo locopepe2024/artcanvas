@@ -514,11 +514,11 @@ function InfiniteCanvasPage() {
             const task = recoverableCanvasVideoTask(node.metadata?.videoTask);
             const recoveryKind = canvasVideoRecoveryKind(task, result);
             const recoveryKey = task ? `${node.id}:${task.id}` : "";
-            const recoveringErroredTask = node.metadata?.status === NODE_STATUS_ERROR && Boolean(task) && !attemptedErroredVideoTaskRecoveryRef.current.has(recoveryKey);
-            if (node.type !== CanvasNodeType.Video || (node.metadata?.status !== NODE_STATUS_LOADING && !recoveringErroredTask) || node.metadata?.content || generationRequestsRef.current.has(node.id)) return;
+            const recoveringSettledTask = (node.metadata?.status === NODE_STATUS_ERROR || node.metadata?.status === NODE_STATUS_SUCCESS) && Boolean(task) && !attemptedErroredVideoTaskRecoveryRef.current.has(recoveryKey);
+            if (node.type !== CanvasNodeType.Video || (node.metadata?.status !== NODE_STATUS_LOADING && !recoveringSettledTask) || node.metadata?.content || generationRequestsRef.current.has(node.id)) return;
             const taskConfig = buildGenerationConfig(effectiveConfig, node, "video");
             if (!isAiConfigReady(taskConfig, taskConfig.model)) return;
-            if (recoveringErroredTask) {
+            if (recoveringSettledTask) {
                 attemptedErroredVideoTaskRecoveryRef.current.add(recoveryKey);
                 setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item)));
             }
