@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { readProviderFailureMessage, reconcileReportedVideoFailure, shouldReconcileStoredVideoTaskQuery } from "./video.ts";
+import { readProviderFailureMessage, readReportedOpenAIVideoFailure, reconcileReportedVideoFailure, shouldReconcileStoredVideoTaskQuery } from "./video.ts";
 
 describe("video task query reconciliation", () => {
     test("reconciles queued-task 400s and transient provider query failures", () => {
@@ -28,5 +28,18 @@ describe("video task query reconciliation", () => {
         expect(reconcileReportedVideoFailure("上游生成超时", completed)).toEqual(completed);
         expect(reconcileReportedVideoFailure("上游生成超时", { status: "pending" })).toEqual({ status: "pending" });
         expect(reconcileReportedVideoFailure("上游生成超时", null)).toEqual({ status: "failed", error: "上游生成超时" });
+    });
+
+    test("failure status wins over a stale result URL", () => {
+        const response = {
+            status: "failed",
+            result_url: "/v1/videos/task_failed/content",
+            requires_auth: true,
+            error: {
+                message: JSON.stringify({ noteType: "PROVIDER_FAILURE", failureReason: { errorCode: "PROVIDER_MODERATION_ERROR" } }),
+            },
+        };
+        expect(readReportedOpenAIVideoFailure(response)).toBe("上游生成失败（PROVIDER_MODERATION_ERROR）");
+        expect(readReportedOpenAIVideoFailure({ status: "completed", result_url: "/v1/videos/task_ok/content" })).toBe("");
     });
 });

@@ -407,15 +407,15 @@ function genericVideoPixelSize(resolution: string, ratio: string) {
 async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, options?: RequestOptions): Promise<VideoGenerationTaskState> {
     try {
         const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), signal: options?.signal })).data);
+        const reportedFailure = readReportedOpenAIVideoFailure(video);
+        if (reportedFailure) {
+            const storedState = await pollStoredVideoTask(config, task, options);
+            return reconcileReportedVideoFailure(reportedFailure, storedState);
+        }
         const url = videoResultUrl(video);
         if (url) return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, task.channelId, url, video.requires_auth, video.content_type) };
         if (video.status === "completed") {
             return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, task.channelId, aiApiUrl(config, `/videos/${task.id}/content`), true, "video/mp4") };
-        }
-        const providerFailure = readProviderFailureMessage(video);
-        if (video.status === "failed" || video.status === "cancelled" || providerFailure) {
-            const storedState = await pollStoredVideoTask(config, task, options);
-            return reconcileReportedVideoFailure(providerFailure || readApiErrorMessage(video.error?.message) || "视频生成失败", storedState);
         }
         return { status: "pending" };
     } catch (error) {
@@ -439,6 +439,18 @@ export function readProviderFailureMessage(value: unknown) {
     if (!providerErrorCode) return "";
     if (providerErrorCode === "PROVIDER_TIMEOUT") return "上游生成超时，请稍后重试";
     return payload.noteType === "PROVIDER_FAILURE" ? `上游生成失败（${providerErrorCode}）` : "";
+}
+
+export function readReportedOpenAIVideoFailure(value: unknown) {
+    if (!value || typeof value !== "object") return "";
+    const video = value as VideoResponse;
+    const providerFailure = readProviderFailureMessage(video) || readApiErrorMessage(video.error?.message);
+    if (providerFailure) return providerFailure;
+    const status = String(video.status || "").trim().toLowerCase();
+    if (status === "failed" || status === "failure") return "视频生成失败";
+    if (status === "cancelled") return "视频生成已取消";
+    if (status === "expired") return "视频生成已过期";
+    return "";
 }
 
 export function shouldReconcileStoredVideoTaskQuery(status?: number, canceled = false, aborted = false) {
