@@ -48,7 +48,7 @@ import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, clampCanvasScale } from "@/lib/canv
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { createCanvasConnection, getCanvasConnectionValidationError, normalizeCanvasConnections } from "@/lib/canvas/canvas-connection-contract";
 import { applyNodeConfigPatch, audioMetadata, buildAudioGenerationMetadata, buildImageGenerationMetadata, createCanvasNode, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-node-factory";
-import { persistedCanvasVideoResult, persistedCanvasVideoTask, recoverableCanvasVideoResult, recoverableCanvasVideoTask } from "@/lib/canvas/canvas-video-task";
+import { canvasVideoRecoveryKind, persistedCanvasVideoResult, persistedCanvasVideoTask, recoverableCanvasVideoResult, recoverableCanvasVideoTask } from "@/lib/canvas/canvas-video-task";
 import { findContainingGroupId, findGroupDropTarget, getConnectionTargetAnchor, isHiddenBatchChild, isHiddenBatchConnectionEndpoint, normalizeConnection, snapNodesIntoGroup } from "@/lib/canvas/canvas-node-geometry";
 import {
     audioExtension,
@@ -357,7 +357,7 @@ function InfiniteCanvasPage() {
                 setNodes((prev) =>
                     prev.map((node) =>
                         node.id === nodeId
-                            ? { ...node, metadata: { ...node.metadata, ...(isTerminalVideoTaskError(error) ? { videoTask: undefined } : {}), status: NODE_STATUS_ERROR, errorDetails } }
+                            ? { ...node, metadata: { ...node.metadata, ...(isTerminalVideoTaskError(error) ? { videoTask: undefined, videoResult: undefined } : {}), status: NODE_STATUS_ERROR, errorDetails } }
                             : node,
                     ),
                 );
@@ -512,6 +512,7 @@ function InfiniteCanvasPage() {
         nodes.forEach((node) => {
             const result = recoverableCanvasVideoResult(node.metadata?.videoResult);
             const task = recoverableCanvasVideoTask(node.metadata?.videoTask);
+            const recoveryKind = canvasVideoRecoveryKind(task, result);
             const recoveryKey = task ? `${node.id}:${task.id}` : "";
             const recoveringErroredTask = node.metadata?.status === NODE_STATUS_ERROR && Boolean(task) && !attemptedErroredVideoTaskRecoveryRef.current.has(recoveryKey);
             if (node.type !== CanvasNodeType.Video || (node.metadata?.status !== NODE_STATUS_LOADING && !recoveringErroredTask) || node.metadata?.content || generationRequestsRef.current.has(node.id)) return;
@@ -521,8 +522,8 @@ function InfiniteCanvasPage() {
                 attemptedErroredVideoTaskRecoveryRef.current.add(recoveryKey);
                 setNodes((prev) => prev.map((item) => (item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item)));
             }
-            if (result) void resumeVideoResult(node.id, result, taskConfig);
-            else if (task) void resumeVideoTask(node.id, task, taskConfig);
+            if (recoveryKind === "task" && task) void resumeVideoTask(node.id, task, taskConfig);
+            else if (recoveryKind === "result" && result) void resumeVideoResult(node.id, result, taskConfig);
         });
     }, [effectiveConfig, isAiConfigReady, nodes, projectLoaded, resumeVideoResult, resumeVideoTask]);
 

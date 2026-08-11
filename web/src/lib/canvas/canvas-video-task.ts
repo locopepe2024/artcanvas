@@ -37,3 +37,9 @@ export function persistedCanvasVideoResult(result: { url?: unknown; model?: unkn
 export function recoverableCanvasVideoResult(value: unknown): CanvasVideoResult | undefined {
     return value && typeof value === "object" ? persistedCanvasVideoResult(value as { url?: unknown; model?: unknown; channelId?: unknown; requiresAuth?: unknown; mimeType?: unknown }) : undefined;
 }
+
+export function canvasVideoRecoveryKind(task: CanvasVideoTask | undefined, result: CanvasVideoResult | undefined): "task" | "result" | undefined {
+    if (task) return "task";
+    if (result) return "result";
+    return undefined;
+}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { persistedCanvasVideoResult, persistedCanvasVideoTask, recoverableCanvasVideoResult, recoverableCanvasVideoTask } from "./canvas-video-task.ts";
+import { canvasVideoRecoveryKind, persistedCanvasVideoResult, persistedCanvasVideoTask, recoverableCanvasVideoResult, recoverableCanvasVideoTask } from "./canvas-video-task.ts";
 
 test("persists only recoverable remote video tasks", () => {
     assert.deepEqual(persistedCanvasVideoTask({ id: "task_123", provider: "openai", model: "seedance-2.0-fast-vip", channelId: "uniart" }), {
@@ -33,4 +33,11 @@ test("rejects incomplete terminal video results", () => {
     assert.equal(recoverableCanvasVideoResult(null), undefined);
     assert.equal(recoverableCanvasVideoResult({ url: "" }), undefined);
     assert.deepEqual(recoverableCanvasVideoResult({ url: "https://cdn.example.com/video.mp4" }), { url: "https://cdn.example.com/video.mp4" });
+});
+
+test("reconciles the remote task before trusting a persisted result URL", () => {
+    const task = persistedCanvasVideoTask({ id: "task_failed", provider: "openai", model: "seedance-2.0" });
+    const result = persistedCanvasVideoResult({ url: "/v1/videos/task_failed/content", requiresAuth: true });
+    assert.equal(canvasVideoRecoveryKind(task, result), "task");
+    assert.equal(canvasVideoRecoveryKind(undefined, result), "result");
 });
