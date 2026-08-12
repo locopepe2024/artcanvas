@@ -412,7 +412,7 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
         const reportedFailure = readReportedOpenAIVideoFailure(video);
         if (reportedFailure) {
             const storedState = await pollStoredVideoTask(config, task, options);
-            return reconcileReportedVideoFailure(reportedFailure, storedState);
+            return reconcileReportedVideoFailure(reportedFailure, storedState, Boolean(videoCapabilityOf(config, task.model)));
         }
         const url = videoResultUrl(video);
         if (url) return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, task.channelId, url, video.requires_auth, video.content_type) };
@@ -430,8 +430,10 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
     }
 }
 
-export function reconcileReportedVideoFailure(reportedError: string, storedState: VideoGenerationTaskState | null): VideoGenerationTaskState {
-    return storedState || { status: "failed", error: reportedError || "视频生成失败" };
+export function reconcileReportedVideoFailure(reportedError: string, storedState: VideoGenerationTaskState | null, storedStateAuthoritative = false): VideoGenerationTaskState {
+    if (storedState) return storedState;
+    if (storedStateAuthoritative) return { status: "pending" };
+    return { status: "failed", error: reportedError || "视频生成失败" };
 }
 
 export function readProviderFailureMessage(value: unknown) {

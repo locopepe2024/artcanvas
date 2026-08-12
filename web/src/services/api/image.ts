@@ -127,13 +127,22 @@ function normalizeQuality(quality: string) {
     return QUALITY_BASE[normalized] ? normalized : undefined;
 }
 
-function resolveUniArtSemanticImageOutput(model: string, quality: string, size: string) {
-    if (!UNIART_SEMANTIC_IMAGE_MODELS.has(model.trim().toLowerCase())) return null;
+export function resolveUniArtSemanticImageOutput(model: string, quality: string, size: string, baseUrl = "") {
+    if (!UNIART_SEMANTIC_IMAGE_MODELS.has(model.trim().toLowerCase()) && !isUniArtApiUrl(baseUrl)) return null;
     const normalizedQuality = normalizeQuality(quality);
     const resolution = normalizedQuality === "medium" || normalizedQuality === "hd" ? "2k" : normalizedQuality === "high" ? "4k" : "1k";
     const dimensions = parseImageDimensions(size.trim());
     const aspectRatio = dimensions ? reduceImageRatio(dimensions.width, dimensions.height) : size.trim().toLowerCase() === "auto" || !size.trim() ? "1:1" : normalizeImageRatio(size);
     return { resolution, aspect_ratio: aspectRatio };
+}
+
+function isUniArtApiUrl(value: string) {
+    try {
+        const hostname = new URL(value).hostname.toLowerCase();
+        return hostname === "uniart.fun" || hostname.endsWith(".uniart.fun");
+    } catch {
+        return false;
+    }
 }
 
 function normalizeImageRatio(value: string) {
@@ -834,7 +843,7 @@ export async function requestGeneration(config: AiConfig, prompt: string, option
             throw new Error(readAxiosError(error, "请求失败"));
         }
     }
-    const semanticOutput = resolveUniArtSemanticImageOutput(requestConfig.model, config.quality, config.size);
+    const semanticOutput = resolveUniArtSemanticImageOutput(requestConfig.model, config.quality, config.size, requestConfig.baseUrl);
     const quality = semanticOutput ? undefined : normalizeQuality(config.quality);
     const requestSize = semanticOutput ? undefined : resolveRequestSize(quality, config.size);
     const background = normalizeBackground(config.background);
@@ -929,7 +938,7 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
         }
     }
 
-    const semanticOutput = resolveUniArtSemanticImageOutput(requestConfig.model, config.quality, config.size);
+    const semanticOutput = resolveUniArtSemanticImageOutput(requestConfig.model, config.quality, config.size, requestConfig.baseUrl);
     const quality = semanticOutput ? undefined : normalizeQuality(config.quality);
     const requestSize = semanticOutput ? undefined : resolveRequestSize(quality, config.size);
     const background = normalizeBackground(config.background);

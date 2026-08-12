@@ -28,6 +28,7 @@ describe("video task query reconciliation", () => {
         expect(reconcileReportedVideoFailure("上游生成超时", completed)).toEqual(completed);
         expect(reconcileReportedVideoFailure("上游生成超时", { status: "pending" })).toEqual({ status: "pending" });
         expect(reconcileReportedVideoFailure("上游生成超时", null)).toEqual({ status: "failed", error: "上游生成超时" });
+        expect(reconcileReportedVideoFailure("Generate failed: An error occurred.", null, true)).toEqual({ status: "pending" });
     });
 
     test("failure status wins over a stale result URL", () => {
