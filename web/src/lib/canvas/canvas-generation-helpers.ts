@@ -115,7 +115,7 @@ export function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
     return nodes.map((node) =>
         node.metadata?.status !== "loading" || (node.type === CanvasNodeType.Video && (recoverableCanvasVideoResult(node.metadata.videoResult) || recoverableCanvasVideoTask(node.metadata.videoTask)))
             ? node
-            : { ...node, metadata: { ...node.metadata, status: "error" as const, errorDetails: "页面刷新后生成已中断，请重新生成。" } },
+            : { ...node, metadata: { ...node.metadata, videoGenerationStage: undefined, status: "error" as const, errorDetails: "页面刷新后生成已中断，请重新生成。" } },
     );
 }
 

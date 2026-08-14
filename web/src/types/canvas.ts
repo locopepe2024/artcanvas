@@ -26,6 +26,7 @@ export type CanvasNodeTypeId = CanvasNodeType | (string & {});
 export type CanvasNodeStatus = "idle" | "success" | "loading" | "error";
 export type CanvasGenerationMode = "text" | "image" | "video" | "audio";
 export type CanvasImageGenerationType = "generation" | "edit";
+export type CanvasVideoGenerationStage = "submitting" | "running" | "downloading";
 
 export type CanvasNodeMetadata = {
     content?: string;
@@ -48,6 +49,7 @@ export type CanvasNodeMetadata = {
     watermark?: string;
     videoReferenceMode?: "text_to_video" | "image_to_video" | "image_reference" | "first_last_frames" | "omni_reference";
     faceMode?: string;
+    videoGenerationStage?: CanvasVideoGenerationStage;
     videoTask?: CanvasVideoTask;
     videoResult?: CanvasVideoResult;
     audioVoice?: string;

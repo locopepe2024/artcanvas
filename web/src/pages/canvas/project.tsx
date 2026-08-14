@@ -305,7 +305,7 @@ function InfiniteCanvasPage() {
                     width: videoSize.width,
                     height: videoSize.height,
                     position: { x: node.position.x + node.width / 2 - videoSize.width / 2, y: node.position.y + node.height / 2 - videoSize.height / 2 },
-                    metadata: { ...node.metadata, ...videoMetadata(video), videoTask: undefined, videoResult: undefined, errorDetails: undefined },
+                    metadata: { ...node.metadata, ...videoMetadata(video), videoGenerationStage: undefined, videoTask: undefined, videoResult: undefined, errorDetails: undefined },
                 };
             }),
         );
@@ -315,7 +315,11 @@ function InfiniteCanvasPage() {
         async (nodeId: string, result: VideoGenerationResult, taskConfig: AiConfig, controller: AbortController) => {
             const videoResult = persistedCanvasVideoResult(result);
             if (videoResult) {
-                setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, videoResult, status: NODE_STATUS_LOADING, errorDetails: undefined } } : node)));
+                setNodes((prev) =>
+                    prev.map((node) =>
+                        node.id === nodeId ? { ...node, metadata: { ...node.metadata, videoGenerationStage: "downloading", videoResult, status: NODE_STATUS_LOADING, errorDetails: undefined } } : node,
+                    ),
+                );
             }
             try {
                 applyGeneratedVideo(nodeId, await storeGeneratedVideo(result, taskConfig, { signal: controller.signal }));
@@ -323,7 +327,11 @@ function InfiniteCanvasPage() {
                 if (isGenerationCanceled(error)) throw error;
                 const reason = error instanceof Error ? error.message : "视频下载失败";
                 const errorDetails = `${reason.replace(/[。.]$/, "")}，请点击重新下载`;
-                setNodes((prev) => prev.map((node) => (node.id === nodeId ? { ...node, metadata: { ...node.metadata, ...(videoResult ? { videoResult } : {}), status: NODE_STATUS_ERROR, errorDetails } } : node)));
+                setNodes((prev) =>
+                    prev.map((node) =>
+                        node.id === nodeId ? { ...node, metadata: { ...node.metadata, videoGenerationStage: undefined, ...(videoResult ? { videoResult } : {}), status: NODE_STATUS_ERROR, errorDetails } } : node,
+                    ),
+                );
                 throw new Error(errorDetails);
             }
         },
@@ -379,14 +387,20 @@ function InfiniteCanvasPage() {
         });
         setRunningNodeId((current) => (current === runningId ? null : current));
         if (!affectedNodeIds.size) return;
-        setNodes((prev) => prev.map((node) => (affectedNodeIds.has(node.id) && node.metadata?.status === NODE_STATUS_LOADING ? { ...node, metadata: { ...node.metadata, status: NODE_STATUS_IDLE, errorDetails: undefined } } : node)));
+        setNodes((prev) =>
+            prev.map((node) =>
+                affectedNodeIds.has(node.id) && node.metadata?.status === NODE_STATUS_LOADING
+                    ? { ...node, metadata: { ...node.metadata, videoGenerationStage: undefined, status: NODE_STATUS_IDLE, errorDetails: undefined } }
+                    : node,
+            ),
+        );
     }, []);
 
     const confirmStopGeneration = useCallback(
         (nodeId: string) => {
             modal.confirm({
                 title: "停止生成？",
-                content: "当前生成请求会被中断，已经生成完成的内容会保留。",
+                content: "当前请求会被中断。视频参考素材仍在提交时，上游任务可能尚未创建；已经生成完成的内容会保留。",
                 okText: "停止",
                 cancelText: "继续生成",
                 okButtonProps: { danger: true },
@@ -2191,6 +2205,10 @@ function InfiniteCanvasPage() {
 
     const handleGenerateNode = useCallback(
         async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => {
+            if (mode === "video" && Array.from(generationRequestsRef.current.values()).some((request) => request.runningNodeId === nodeId)) {
+                message.info("视频仍在提交或生成中，请先停止当前请求后再重试");
+                return;
+            }
             const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
             const generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
@@ -2472,6 +2490,7 @@ function InfiniteCanvasPage() {
                             generateAudio: generationConfig.videoGenerateAudio,
                             watermark: generationConfig.videoWatermark,
                             videoReferenceMode: generationConfig.videoReferenceMode,
+                            videoGenerationStage: "submitting",
                             references: generationReferenceUrls(generationContext),
                         },
                     };
@@ -2486,7 +2505,7 @@ function InfiniteCanvasPage() {
                     try {
                         const task = await createVideoGenerationTask(generationConfig, effectivePrompt, generationContext.referenceImages, generationContext.referenceVideos, generationContext.referenceAudios, { signal: controller.signal });
                         const videoTask = persistedCanvasVideoTask(task);
-                        if (videoTask) setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, videoTask } } : node)));
+                        setNodes((prev) => prev.map((node) => (node.id === videoId ? { ...node, metadata: { ...node.metadata, videoGenerationStage: "running", ...(videoTask ? { videoTask } : {}) } } : node)));
                         await applyVideoGenerationResult(videoId, await waitForVideoGenerationTask(generationConfig, task, { signal: controller.signal }), generationConfig, controller);
                     } finally {
                         finishGenerationRequest(videoId, controller);
@@ -2594,7 +2613,13 @@ function InfiniteCanvasPage() {
                 const errorDetails = error instanceof Error ? error.message : "生成失败";
                 message.error(errorDetails);
                 setNodes((prev) =>
-                    prev.map((node) => (node.id === nodeId || pendingChildIds.includes(node.id) ? (node.id === nodeId && !markSourceStatus ? node : { ...node, metadata: { ...node.metadata, status: NODE_STATUS_ERROR, errorDetails } }) : node)),
+                    prev.map((node) =>
+                        node.id === nodeId || pendingChildIds.includes(node.id)
+                            ? node.id === nodeId && !markSourceStatus
+                                ? node
+                                : { ...node, metadata: { ...node.metadata, videoGenerationStage: undefined, status: NODE_STATUS_ERROR, errorDetails } }
+                            : node,
+                    ),
                 );
             } finally {
                 finishGenerationRequest(nodeId, runController);

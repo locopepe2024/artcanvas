@@ -483,7 +483,14 @@ function GroupNodeContent({ node, theme, groupChildCount }: NodeContentRendererP
 }
 
 function LoadingContent({ node, theme }: Pick<NodeContentRendererProps, "node" | "theme">) {
-    const label = node.type === CanvasNodeType.Video && node.metadata?.videoResult?.url ? "下载结果中" : "生成中";
+    const label =
+        node.type !== CanvasNodeType.Video
+            ? "生成中"
+            : node.metadata?.videoGenerationStage === "submitting"
+              ? "提交素材中"
+              : node.metadata?.videoGenerationStage === "downloading" || node.metadata?.videoResult?.url
+                ? "下载结果中"
+                : "生成中";
     return (
         <div className="flex h-full w-full flex-col items-center justify-center gap-3" style={{ color: theme.node.activeStroke }}>
             <div className="size-10 animate-spin rounded-full border-2" style={{ borderColor: theme.node.stroke, borderTopColor: theme.node.activeStroke }} />

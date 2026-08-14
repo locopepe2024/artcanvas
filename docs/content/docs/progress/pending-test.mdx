@@ -5,6 +5,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- 画布视频提交阶段：带参考素材（特别是开启人脸模式）的请求在 UniArt 返回 task ID 前，目标视频节点应显示“提交素材中”；拿到 task ID 后显示“生成中”，结果下载时显示“下载结果中”。同一源节点不得通过重复生成静默取消旧请求，只有点击“停止”并确认后才允许中断；若 task ID 尚未返回，确认文案应明确上游任务可能尚未创建。
 - UniArt 图片语义分辨率：在图片创作台或画布选择 2K 与任意比例并使用 UniArt 图片模型时，请求应只包含 `resolution=2k` 和对应 `aspect_ratio`，不得同时发送由 Canvas 换算且会被识别为 4K 的像素 `size`；普通 OpenAI 兼容渠道继续使用原像素尺寸请求。
 - 视频排队及终态查询对账：任务已创建且持久任务为 `IN_PROGRESS` 或 `SUCCESS` 时，即使常规 `/v1/videos/:task_id` 暂时返回 400、`task_not_exist`、缺少 task data、HTTP 200 `PROVIDER_FAILURE`、`PROVIDER_TIMEOUT`、`Generate failed: An error occurred.` 或失败终态，画布也应分别保持“生成中”或加载成功结果并继续使用原 task ID；持久任务查询自身短暂不可读时也必须继续轮询，不能耗尽一次恢复机会后错过随后成功的任务；持久任务明确 `FAILURE` 后应清除自动恢复句柄、保持失败且不再因刷新重复查询或弹错。
 - 视频创作台历史记录恢复：打开 `/video` 时，同一个日志与 task ID 每个页面会话最多自动恢复一次；配置状态更新、日志保存或列表刷新不得再次启动同一失败任务，后台恢复失败只更新卡片且不弹全局错误，持久失败原因中的 `PROVIDER_TIMEOUT` JSON 应显示为可读提示。
