@@ -229,13 +229,12 @@ function authenticatedVideoDownloadUrl(config: AiConfig, resultUrl: string) {
 }
 
 async function downloadAuthenticatedVideo(url: string, config: AiConfig, options?: RequestOptions) {
-    const deadline = Date.now() + 120000;
     let retryDelayMs = 1000;
     while (true) {
         try {
-            return await axios.get<Blob>(url, { headers: aiHeaders(config), responseType: "blob", signal: options?.signal, timeout: 120000 });
+            return await axios.get<Blob>(url, { headers: aiHeaders(config), responseType: "blob", signal: options?.signal, timeout: 0 });
         } catch (error) {
-            if (axios.isCancel(error) || options?.signal?.aborted || !axios.isAxiosError(error) || error.response?.status !== 503 || Date.now() + retryDelayMs > deadline) throw error;
+            if (axios.isCancel(error) || options?.signal?.aborted || !axios.isAxiosError(error) || error.response?.status !== 503) throw error;
             await delay(retryDelayMs, options?.signal);
             retryDelayMs = Math.min(10000, retryDelayMs * 2);
         }
