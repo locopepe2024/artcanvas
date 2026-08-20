@@ -1039,6 +1039,7 @@ type ApiModel = {
     supported_endpoint_types?: string[];
     video_capability?: {
         modes?: Array<{ id?: string; input_types?: string[] }>;
+        supports_face_mode?: boolean;
         resolutions?: string[];
         ratios?: string[];
         durations?: number[];
@@ -1055,6 +1056,7 @@ function channelModelFromApiModel(model: ApiModel): ChannelModel | null {
     const capability: ModelCapability = endpoints.includes("openai-video") ? "video" : endpoints.includes("image-generation") ? "image" : guessCapability(name);
     const videoCapability = normalizeVideoCapability({
         modes: (model.video_capability?.modes || []).map((mode) => ({ id: mode.id as VideoCapabilityModeId, inputTypes: (mode.input_types || []) as VideoCapability["modes"][number]["inputTypes"] })),
+        supportsFaceMode: model.video_capability?.supports_face_mode === true,
         resolutions: model.video_capability?.resolutions,
         ratios: model.video_capability?.ratios,
         durations: model.video_capability?.durations,

@@ -297,7 +297,7 @@ async function buildUniArtOfficialVideoRequest(
 ) {
     const limits = resolveUniArtReferenceLimits(capability, config.videoReferenceMode);
     const mode = limits.mode;
-    const faceMode = boolConfig(config.videoFaceMode, false);
+    const faceMode = capability.supportsFaceMode === true && boolConfig(config.videoFaceMode, false);
     const generateAudio = boolConfig(config.videoGenerateAudio, true);
     if (mode === "text_to_video") {
         if (faceMode) throw new Error("人脸模式需要至少一张参考图片");

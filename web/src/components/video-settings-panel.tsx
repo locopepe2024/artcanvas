@@ -141,12 +141,14 @@ function UniArtVideoSettingsPanel({ config, onConfigChange, theme, showTitle, cl
                         <SwitchRow label={generateAudio ? "音频开" : "音频关"} checked={generateAudio} theme={theme} onChange={(checked) => onConfigChange("videoGenerateAudio", String(checked))} />
                     </div>
                 </SettingGroup>
-                <SettingGroup title="素材处理" color={theme.node.muted}>
-                    <div className="rounded-xl border px-2.5 py-1" style={{ borderColor: theme.node.stroke }}>
-                        <SwitchRow label="人脸" checked={faceMode} theme={theme} onChange={(checked) => onConfigChange("videoFaceMode", String(checked))} />
-                    </div>
-                    <div className="text-[11px] leading-4" style={{ color: theme.node.muted }}>开启后由 UniArt 在提交前完成素材认证；关闭时直接使用画布素材地址。</div>
-                </SettingGroup>
+                {capability.supportsFaceMode ? (
+                    <SettingGroup title="素材处理" color={theme.node.muted}>
+                        <div className="rounded-xl border px-2.5 py-1" style={{ borderColor: theme.node.stroke }}>
+                            <SwitchRow label="人脸" checked={faceMode} theme={theme} onChange={(checked) => onConfigChange("videoFaceMode", String(checked))} />
+                        </div>
+                        <div className="text-[11px] leading-4" style={{ color: theme.node.muted }}>开启后由 UniArt 在提交前完成素材认证；关闭时直接使用画布素材地址。</div>
+                    </SettingGroup>
+                ) : null}
                 <div className="text-xs leading-5" style={{ color: theme.node.muted }}>
                     参数最终由 UniArt 根据可用候选进行校验和路由。
                 </div>

@@ -10,6 +10,7 @@ export type VideoReferenceMode = "text_to_video" | "image_to_video" | "image_ref
 export type VideoCapabilityModeId = "text_to_video" | "image_to_video" | "image_reference" | "first_last_frame" | "omni_reference";
 export type VideoCapability = {
     modes: Array<{ id: VideoCapabilityModeId; inputTypes: Array<"text" | "image" | "video" | "audio"> }>;
+    supportsFaceMode?: boolean;
     resolutions?: string[];
     ratios?: string[];
     durations?: number[];
@@ -310,6 +311,7 @@ export function normalizeVideoCapability(value: VideoCapability | undefined): Vi
     const defaultDuration = durations.includes(Number(value?.defaultDuration)) ? Number(value?.defaultDuration) : undefined;
     return {
         modes,
+        ...(value?.supportsFaceMode ? { supportsFaceMode: true } : {}),
         ...(resolutions.length ? { resolutions } : {}),
         ...(ratios.length ? { ratios } : {}),
         ...(durations.length ? { durations } : {}),
