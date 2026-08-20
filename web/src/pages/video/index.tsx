@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, ClipboardPaste, Download, FolderPlus, History, LoaderCircle, Music2, Plus, RefreshCw, SlidersHorizontal, Sparkles, Trash2, Upload, VideoIcon } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, CheckSquare, ClipboardPaste, Download, FolderPlus, History, Images, LoaderCircle, Music2, Plus, RefreshCw, SlidersHorizontal, Sparkles, Trash2, Upload, VideoIcon } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { App, Button, Checkbox, Drawer, Empty, Input, Modal, Tag, Typography } from "antd";
 import { nanoid } from "nanoid";
@@ -708,12 +708,12 @@ export default function VideoPage() {
                             <div>
                                 <div className="mb-2 flex items-center justify-between gap-3">
                                     <span className="text-base font-semibold">提示词</span>
-                                    <div className="flex gap-2">
+                                    <div className="flex flex-wrap justify-end gap-2">
                                         <Button size="small" icon={<BookOpen className="size-3.5" />} onClick={() => setPromptDialogOpen(true)}>
                                             查看提示词库
                                         </Button>
-                                        <Button size="small" icon={<FolderPlus className="size-3.5" />} onClick={() => setAssetPickerOpen(true)}>
-                                            查看我的资产
+                                        <Button size="small" icon={<Images className="size-3.5" />} onClick={() => setAssetPickerOpen(true)}>
+                                            素材库
                                         </Button>
                                     </div>
                                 </div>
@@ -733,7 +733,12 @@ export default function VideoPage() {
 
                             {referenceLimits.maxImages > 0 ? <div className="min-w-0">
                                 <div className="mb-2 flex items-center justify-between gap-3">
-                                    <span className="text-base font-semibold">{imageReferenceTitle}</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-base font-semibold">{imageReferenceTitle}</span>
+                                        <Button size="small" icon={<Images className="size-3.5" />} onClick={() => setAssetPickerOpen(true)}>
+                                            从素材库选择
+                                        </Button>
+                                    </div>
                                     <div className="flex gap-2">
                                         <Button size="small" icon={<ClipboardPaste className="size-3.5" />} onClick={() => void addReferencesFromClipboard()}>
                                             剪切板
