@@ -15,7 +15,7 @@ import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
 import { resolveUniArtReferenceLimits, uniArtVideoSubmissionError } from "@/lib/uniart-video";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
-import { requestImageQuestion } from "@/services/api/image";
+import { optimizeMiniMaxH3Prompt } from "@/services/api/context-ir";
 
 export type CanvasNodeGenerationMode = CanvasGenerationMode;
 
@@ -80,15 +80,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
         if (!isH3Video || !promptImageReferences.length || isOptimizingPrompt) return;
         setIsOptimizingPrompt(true);
         try {
-            const textConfig = { ...globalConfig, model: globalConfig.textModel };
-            const content = [
-                {
-                    type: "text" as const,
-                    text: `请优化下面的视频提示词，使其更具体、可执行，并保留用户意图。只返回优化后的提示词，不要解释。\n\n原提示词：\n${prompt.trim() || "（未填写，请根据参考图生成合适的视频描述）"}`,
-                },
-                ...promptImageReferences.map((reference) => ({ type: "image_url" as const, image_url: { url: reference.previewUrl! } })),
-            ];
-            const optimized = await requestImageQuestion(textConfig, [{ role: "user", content }], () => undefined);
+            const optimized = await optimizeMiniMaxH3Prompt(globalConfig, prompt, promptImageReferences.map((reference) => ({ kind: "image" as const, previewUrl: reference.previewUrl, title: reference.title })));
             const nextPrompt = optimized.trim();
             if (!nextPrompt || nextPrompt === "没有返回内容") throw new Error("提示词优化没有返回有效内容");
             updatePrompt(nextPrompt);

@@ -8,7 +8,7 @@ import { seedanceReferenceLabel } from "@/lib/seedance-video";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { NodeGenerationInput } from "./canvas-node-generation";
 import type { CanvasNodeMetadata } from "@/types/canvas";
-import { requestImageQuestion } from "@/services/api/image";
+import { optimizeMiniMaxH3Prompt } from "@/services/api/context-ir";
 import { useEffectiveConfig } from "@/stores/use-config-store";
 
 type CanvasConfigComposerProps = {
@@ -131,11 +131,7 @@ export function CanvasConfigComposer({ value, inputs, videoMode, model, videoRef
         if (!isH3Video || !imageInputs.length || isOptimizingPrompt) return;
         setIsOptimizingPrompt(true);
         try {
-            const content = [
-                { type: "text" as const, text: `请优化下面的视频提示词，使其更具体、可执行，并保留用户意图。只返回优化后的提示词，不要解释。\n\n原提示词：\n${value.trim() || "（未填写，请根据参考图生成合适的视频描述）"}` },
-                ...imageInputs.map((input) => ({ type: "image_url" as const, image_url: { url: input.image!.dataUrl } })),
-            ];
-            const optimized = await requestImageQuestion({ ...globalConfig, model: globalConfig.textModel }, [{ role: "user", content }], () => undefined);
+            const optimized = await optimizeMiniMaxH3Prompt(globalConfig, value, imageInputs.map((input) => ({ kind: "image" as const, previewUrl: input.image!.dataUrl, title: input.title })));
             const nextPrompt = optimized.trim();
             if (!nextPrompt || nextPrompt === "没有返回内容") throw new Error("提示词优化没有返回有效内容");
             onChange(nextPrompt);
