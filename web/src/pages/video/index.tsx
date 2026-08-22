@@ -17,6 +17,7 @@ import { preferredUniArtImageReferenceMode, resolveUniArtReferenceLimits, uniArt
 import { collectMediaStorageKeys, deleteStoredMedia, resolveMediaUrl } from "@/services/file-storage";
 import { collectImageStorageKeys, deleteStoredImages, resolveImageUrl } from "@/services/image-storage";
 import { createVideoGenerationTask, isRetryableVideoTaskQueryError, storeGeneratedVideo, waitForVideoGenerationTask, type VideoGenerationTask } from "@/services/api/video";
+import { requestImageQuestion } from "@/services/api/image";
 import { uploadVideoReferenceAsset } from "@/services/video-reference-assets";
 import { isQuotaExceededStorageError, writeWithConfirmedQuotaCleanup } from "@/services/browser-storage-errors";
 import { claimVideoLogRecovery } from "@/lib/video-log-recovery";
@@ -106,6 +107,7 @@ export default function VideoPage() {
     const [logsOpen, setLogsOpen] = useState(false);
     const [settingsOpen, setSettingsOpen] = useState(false);
     const [promptDialogOpen, setPromptDialogOpen] = useState(false);
+    const [optimizingPrompt, setOptimizingPrompt] = useState(false);
     const [assetPickerOpen, setAssetPickerOpen] = useState(false);
     const [startedAt, setStartedAt] = useState(0);
     const [elapsedMs, setElapsedMs] = useState(0);
@@ -148,6 +150,27 @@ export default function VideoPage() {
           ? null
           : "请输入视频提示词";
     const canGenerate = !submissionError;
+    const isH3Video = /minimax[-_ ]?h3/i.test(model || "");
+
+    const optimizePrompt = async () => {
+        if (!isH3Video || !references.length || optimizingPrompt || running) return;
+        setOptimizingPrompt(true);
+        try {
+            const content = [
+                { type: "text" as const, text: `请优化下面的视频提示词，使其更具体、可执行，并保留用户意图。只返回优化后的提示词，不要解释。\n\n原提示词：\n${prompt.trim() || "（未填写，请根据参考图生成合适的视频描述）"}` },
+                ...references.map((reference) => ({ type: "image_url" as const, image_url: { url: reference.dataUrl } })),
+            ];
+            const optimized = await requestImageQuestion({ ...effectiveConfig, model: effectiveConfig.textModel }, [{ role: "user", content }], () => undefined);
+            const nextPrompt = optimized.trim();
+            if (!nextPrompt || nextPrompt === "没有返回内容") throw new Error("提示词优化没有返回有效内容");
+            setPrompt(nextPrompt);
+            message.success("提示词已优化，请确认后再提交");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "提示词优化失败，请稍后重试");
+        } finally {
+            setOptimizingPrompt(false);
+        }
+    };
 
     useEffect(() => {
         setReferences((value) => value.slice(0, referenceLimits.maxImages));
@@ -712,6 +735,11 @@ export default function VideoPage() {
                                         <Button size="small" icon={<BookOpen className="size-3.5" />} onClick={() => setPromptDialogOpen(true)}>
                                             查看提示词库
                                         </Button>
+                                        {isH3Video ? (
+                                            <Button size="small" icon={<Sparkles className="size-3.5" />} loading={optimizingPrompt} disabled={!references.length || running} onClick={() => void optimizePrompt()}>
+                                                提示词优化
+                                            </Button>
+                                        ) : null}
                                         <Button size="small" icon={<Images className="size-3.5" />} onClick={() => setAssetPickerOpen(true)}>
                                             素材库
                                         </Button>
