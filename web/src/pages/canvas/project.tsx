@@ -7,7 +7,7 @@ import { saveAs } from "file-saver";
 import { requestEdit, requestGeneration, requestImageQuestion } from "@/services/api/image";
 import { requestAudioGeneration, storeGeneratedAudio } from "@/services/api/audio";
 import { createVideoGenerationTask, isTerminalVideoTaskError, storeGeneratedVideo, waitForVideoGenerationTask, type VideoGenerationResult, type VideoGenerationTask } from "@/services/api/video";
-import { defaultConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
+import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { uploadImage } from "@/services/image-storage";
 import { uploadMediaFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
@@ -2908,6 +2908,7 @@ function InfiniteCanvasPage() {
                     value={panelNode.metadata?.composerContent ?? panelNode.metadata?.prompt ?? ""}
                     inputs={configInputsById.get(panelNode.id) || []}
                     videoMode={panelNode.metadata?.generationMode === "video"}
+                    model={resolveModelForCapability(effectiveConfig, panelNode.metadata?.model, panelNode.metadata?.generationMode || "image")}
                     videoReferenceMode={panelNode.metadata?.videoReferenceMode || effectiveConfig.videoReferenceMode}
                     onChange={(composerContent) => handleConfigNodeChange(panelNode.id, { composerContent })}
                     onClose={() => setDialogNodeId(null)}

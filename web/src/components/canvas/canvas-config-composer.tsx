@@ -1,18 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, MouseEvent, PointerEvent } from "react";
-import { Button, Image } from "antd";
-import { FileText, Image as ImageIcon, Music2, Video, X } from "lucide-react";
+import { Button, Image, message } from "antd";
+import { FileText, Image as ImageIcon, Music2, Sparkles, Video, X } from "lucide-react";
 
 import { canvasThemes } from "@/lib/canvas-theme";
 import { seedanceReferenceLabel } from "@/lib/seedance-video";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { NodeGenerationInput } from "./canvas-node-generation";
 import type { CanvasNodeMetadata } from "@/types/canvas";
+import { requestImageQuestion } from "@/services/api/image";
+import { useEffectiveConfig } from "@/stores/use-config-store";
 
 type CanvasConfigComposerProps = {
     value: string;
     inputs: NodeGenerationInput[];
     videoMode: boolean;
+    model: string;
     videoReferenceMode?: CanvasNodeMetadata["videoReferenceMode"];
     onChange: (value: string) => void;
     onClose: () => void;
@@ -28,13 +31,17 @@ type MentionState = {
 
 export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]/g;
 
-export function CanvasConfigComposer({ value, inputs, videoMode, videoReferenceMode, onChange, onClose }: CanvasConfigComposerProps) {
+export function CanvasConfigComposer({ value, inputs, videoMode, model, videoReferenceMode, onChange, onClose }: CanvasConfigComposerProps) {
+    const globalConfig = useEffectiveConfig();
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
     const [mention, setMention] = useState<MentionState | null>(null);
     const [activeIndex, setActiveIndex] = useState(0);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
+    const isH3Video = videoMode && /minimax[-_ ]?h3/i.test(model || "");
+    const imageInputs = inputs.filter((input) => input.type === "image" && input.image?.dataUrl);
     const tokens = useMemo(() => parseComposerTokens(value), [value]);
     const referenceById = useMemo(() => new Map(inputs.map((input) => [input.nodeId, input])), [inputs]);
     const selectedInputs = useMemo(() => {
@@ -120,6 +127,26 @@ export function CanvasConfigComposer({ value, inputs, videoMode, videoReferenceM
 
     const stopCanvasInteraction = (event: PointerEvent | MouseEvent) => event.stopPropagation();
 
+    const optimizePrompt = async () => {
+        if (!isH3Video || !imageInputs.length || isOptimizingPrompt) return;
+        setIsOptimizingPrompt(true);
+        try {
+            const content = [
+                { type: "text" as const, text: `请优化下面的视频提示词，使其更具体、可执行，并保留用户意图。只返回优化后的提示词，不要解释。\n\n原提示词：\n${value.trim() || "（未填写，请根据参考图生成合适的视频描述）"}` },
+                ...imageInputs.map((input) => ({ type: "image_url" as const, image_url: { url: input.image!.dataUrl } })),
+            ];
+            const optimized = await requestImageQuestion({ ...globalConfig, model: globalConfig.textModel }, [{ role: "user", content }], () => undefined);
+            const nextPrompt = optimized.trim();
+            if (!nextPrompt || nextPrompt === "没有返回内容") throw new Error("提示词优化没有返回有效内容");
+            onChange(nextPrompt);
+            message.success("提示词已优化，请确认后再提交");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "提示词优化失败，请稍后重试");
+        } finally {
+            setIsOptimizingPrompt(false);
+        }
+    };
+
     return (
         <div
             data-canvas-no-zoom
@@ -134,7 +161,14 @@ export function CanvasConfigComposer({ value, inputs, videoMode, videoReferenceM
                     <div className="shrink-0 text-xs font-semibold">组装提示词</div>
                     <div className="truncate text-[11px] opacity-55">@ 引用已连接资产，发送前按实际引用重新编号</div>
                 </div>
-                <Button size="small" type="text" className="!h-7 !w-7 !min-w-7 !p-0" icon={<X className="size-3.5" />} onClick={onClose} />
+                <div className="flex items-center gap-1">
+                    {isH3Video ? (
+                        <Button size="small" type="text" loading={isOptimizingPrompt} disabled={!imageInputs.length} icon={<Sparkles className="size-3.5" />} onClick={optimizePrompt}>
+                            提示词优化
+                        </Button>
+                    ) : null}
+                    <Button size="small" type="text" className="!h-7 !w-7 !min-w-7 !p-0" icon={<X className="size-3.5" />} onClick={onClose} />
+                </div>
             </div>
             <div className="relative rounded-xl">
                 {!value.trim() ? <div className="pointer-events-none absolute left-3 top-2 text-sm leading-7" style={{ color: theme.node.placeholder }}>输入提示词，按 @ 引用连接的图片或文本</div> : null}
