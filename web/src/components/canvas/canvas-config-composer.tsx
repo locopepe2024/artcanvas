@@ -128,7 +128,7 @@ export function CanvasConfigComposer({ value, inputs, videoMode, model, videoRef
     const stopCanvasInteraction = (event: PointerEvent | MouseEvent) => event.stopPropagation();
 
     const optimizePrompt = async () => {
-        if (!isH3Video || !mediaInputs.length || isOptimizingPrompt) return;
+        if (!isH3Video || isOptimizingPrompt) return;
         setIsOptimizingPrompt(true);
         try {
             const optimized = await optimizeMiniMaxH3Prompt(globalConfig, value, mediaInputs.map((input) => ({ kind: input.type as "image" | "video" | "audio", previewUrl: input.image?.dataUrl || input.video?.url || input.audio?.url, title: input.title })));
@@ -159,7 +159,7 @@ export function CanvasConfigComposer({ value, inputs, videoMode, model, videoRef
                 </div>
                 <div className="flex items-center gap-1">
                     {isH3Video ? (
-                        <Button size="small" type="text" loading={isOptimizingPrompt} disabled={!mediaInputs.length} icon={<Sparkles className="size-3.5" />} onClick={optimizePrompt}>
+                        <Button size="small" type="text" loading={isOptimizingPrompt} icon={<Sparkles className="size-3.5" />} onClick={optimizePrompt}>
                             提示词优化
                         </Button>
                     ) : null}

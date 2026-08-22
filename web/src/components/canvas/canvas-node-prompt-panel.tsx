@@ -77,7 +77,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     };
 
     const optimizePrompt = async () => {
-        if (!isH3Video || !promptMediaReferences.length || isOptimizingPrompt) return;
+        if (!isH3Video || isOptimizingPrompt) return;
         setIsOptimizingPrompt(true);
         try {
             const optimized = await optimizeMiniMaxH3Prompt(globalConfig, prompt, promptMediaReferences.map((reference) => ({ kind: reference.kind as "image" | "video" | "audio", previewUrl: reference.previewUrl, title: reference.title })));
@@ -119,7 +119,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                             type="text"
                             size="small"
                             loading={isOptimizingPrompt}
-                            disabled={!promptMediaReferences.length || isRunning}
+                            disabled={isRunning}
                             onClick={optimizePrompt}
                             icon={<Sparkles className="size-3.5" />}
                             aria-label="优化提示词"
