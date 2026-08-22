@@ -41,7 +41,7 @@ export function CanvasConfigComposer({ value, inputs, videoMode, model, videoRef
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
     const isH3Video = videoMode && /minimax[-_ ]?h3/i.test(model || "");
-    const imageInputs = inputs.filter((input) => input.type === "image" && input.image?.dataUrl);
+    const mediaInputs = inputs.filter((input) => (input.type === "image" && input.image?.dataUrl) || (input.type === "video" && input.video?.url) || (input.type === "audio" && input.audio?.url));
     const tokens = useMemo(() => parseComposerTokens(value), [value]);
     const referenceById = useMemo(() => new Map(inputs.map((input) => [input.nodeId, input])), [inputs]);
     const selectedInputs = useMemo(() => {
@@ -128,10 +128,10 @@ export function CanvasConfigComposer({ value, inputs, videoMode, model, videoRef
     const stopCanvasInteraction = (event: PointerEvent | MouseEvent) => event.stopPropagation();
 
     const optimizePrompt = async () => {
-        if (!isH3Video || !imageInputs.length || isOptimizingPrompt) return;
+        if (!isH3Video || !mediaInputs.length || isOptimizingPrompt) return;
         setIsOptimizingPrompt(true);
         try {
-            const optimized = await optimizeMiniMaxH3Prompt(globalConfig, value, imageInputs.map((input) => ({ kind: "image" as const, previewUrl: input.image!.dataUrl, title: input.title })));
+            const optimized = await optimizeMiniMaxH3Prompt(globalConfig, value, mediaInputs.map((input) => ({ kind: input.type as "image" | "video" | "audio", previewUrl: input.image?.dataUrl || input.video?.url || input.audio?.url, title: input.title })));
             const nextPrompt = optimized.trim();
             if (!nextPrompt || nextPrompt === "没有返回内容") throw new Error("提示词优化没有返回有效内容");
             onChange(nextPrompt);
@@ -159,7 +159,7 @@ export function CanvasConfigComposer({ value, inputs, videoMode, model, videoRef
                 </div>
                 <div className="flex items-center gap-1">
                     {isH3Video ? (
-                        <Button size="small" type="text" loading={isOptimizingPrompt} disabled={!imageInputs.length} icon={<Sparkles className="size-3.5" />} onClick={optimizePrompt}>
+                        <Button size="small" type="text" loading={isOptimizingPrompt} disabled={!mediaInputs.length} icon={<Sparkles className="size-3.5" />} onClick={optimizePrompt}>
                             提示词优化
                         </Button>
                     ) : null}

@@ -151,13 +151,18 @@ export default function VideoPage() {
           : "请输入视频提示词";
     const canGenerate = !submissionError;
     const isH3Video = /h3/i.test(`${modelOptionName(model)} ${modelOptionLabel(effectiveConfig, model)}`);
-    const promptOptimizationHint = !isH3Video ? "请选择 MiniMax H3 模型" : !references.length ? "请先添加至少一张参考图" : "使用参考图优化当前提示词";
+    const hasPromptOptimizationReferences = references.length + videoReferences.length + audioReferences.length > 0;
+    const promptOptimizationHint = !isH3Video ? "请选择 MiniMax H3 模型" : !hasPromptOptimizationReferences ? "请先添加参考素材" : "使用参考素材优化当前提示词";
 
     const optimizePrompt = async () => {
-        if (!isH3Video || !references.length || optimizingPrompt || running) return;
+        if (!isH3Video || !hasPromptOptimizationReferences || optimizingPrompt || running) return;
         setOptimizingPrompt(true);
         try {
-            const optimized = await optimizeMiniMaxH3Prompt(effectiveConfig, prompt, references.map((reference) => ({ kind: "image" as const, previewUrl: reference.dataUrl, title: reference.name })));
+            const optimized = await optimizeMiniMaxH3Prompt(effectiveConfig, prompt, [
+                ...references.map((reference) => ({ kind: "image" as const, previewUrl: reference.dataUrl, title: reference.name })),
+                ...videoReferences.map((reference) => ({ kind: "video" as const, previewUrl: reference.url, title: reference.name })),
+                ...audioReferences.map((reference) => ({ kind: "audio" as const, previewUrl: reference.url, title: reference.name })),
+            ]);
             const nextPrompt = optimized.trim();
             if (!nextPrompt || nextPrompt === "没有返回内容") throw new Error("提示词优化没有返回有效内容");
             setPrompt(nextPrompt);
@@ -736,7 +741,7 @@ export default function VideoPage() {
                                             size="small"
                                             icon={<Sparkles className="size-3.5" />}
                                             loading={optimizingPrompt}
-                                            disabled={!isH3Video || !references.length || running}
+                                            disabled={!isH3Video || !hasPromptOptimizationReferences || running}
                                             title={promptOptimizationHint}
                                             onClick={() => void optimizePrompt()}
                                         >

@@ -56,7 +56,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
               : "请输入提示词";
     const canSubmit = !submissionError;
     const isH3Video = mode === "video" && /minimax[-_ ]?h3/i.test(config.model || "");
-    const promptImageReferences = activeReferences.filter((reference) => reference.kind === "image" && reference.previewUrl);
+    const promptMediaReferences = activeReferences.filter((reference) => ["image", "video", "audio"].includes(reference.kind) && reference.previewUrl);
     const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
 
     // 仅在切换到其它节点时恢复对应提示词;同一节点生成完成后继续保留当前输入。
@@ -77,10 +77,10 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     };
 
     const optimizePrompt = async () => {
-        if (!isH3Video || !promptImageReferences.length || isOptimizingPrompt) return;
+        if (!isH3Video || !promptMediaReferences.length || isOptimizingPrompt) return;
         setIsOptimizingPrompt(true);
         try {
-            const optimized = await optimizeMiniMaxH3Prompt(globalConfig, prompt, promptImageReferences.map((reference) => ({ kind: "image" as const, previewUrl: reference.previewUrl, title: reference.title })));
+            const optimized = await optimizeMiniMaxH3Prompt(globalConfig, prompt, promptMediaReferences.map((reference) => ({ kind: reference.kind as "image" | "video" | "audio", previewUrl: reference.previewUrl, title: reference.title })));
             const nextPrompt = optimized.trim();
             if (!nextPrompt || nextPrompt === "没有返回内容") throw new Error("提示词优化没有返回有效内容");
             updatePrompt(nextPrompt);
@@ -119,7 +119,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
                             type="text"
                             size="small"
                             loading={isOptimizingPrompt}
-                            disabled={!promptImageReferences.length || isRunning}
+                            disabled={!promptMediaReferences.length || isRunning}
                             onClick={optimizePrompt}
                             icon={<Sparkles className="size-3.5" />}
                             aria-label="优化提示词"
