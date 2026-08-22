@@ -150,7 +150,8 @@ export default function VideoPage() {
           ? null
           : "请输入视频提示词";
     const canGenerate = !submissionError;
-    const isH3Video = /minimax[-_ ]?h3/i.test(model || "");
+    const isH3Video = /h3/i.test(`${modelOptionName(model)} ${modelOptionLabel(effectiveConfig, model)}`);
+    const promptOptimizationHint = !isH3Video ? "请选择 MiniMax H3 模型" : !references.length ? "请先添加至少一张参考图" : "使用参考图优化当前提示词";
 
     const optimizePrompt = async () => {
         if (!isH3Video || !references.length || optimizingPrompt || running) return;
@@ -735,11 +736,16 @@ export default function VideoPage() {
                                         <Button size="small" icon={<BookOpen className="size-3.5" />} onClick={() => setPromptDialogOpen(true)}>
                                             查看提示词库
                                         </Button>
-                                        {isH3Video ? (
-                                            <Button size="small" icon={<Sparkles className="size-3.5" />} loading={optimizingPrompt} disabled={!references.length || running} onClick={() => void optimizePrompt()}>
-                                                提示词优化
-                                            </Button>
-                                        ) : null}
+                                        <Button
+                                            size="small"
+                                            icon={<Sparkles className="size-3.5" />}
+                                            loading={optimizingPrompt}
+                                            disabled={!isH3Video || !references.length || running}
+                                            title={promptOptimizationHint}
+                                            onClick={() => void optimizePrompt()}
+                                        >
+                                            提示词优化
+                                        </Button>
                                         <Button size="small" icon={<Images className="size-3.5" />} onClick={() => setAssetPickerOpen(true)}>
                                             素材库
                                         </Button>
