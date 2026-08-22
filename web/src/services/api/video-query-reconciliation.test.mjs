@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { normalizeVideoSafetyFailureMessage, readProviderFailureMessage, readReportedOpenAIVideoFailure, reconcileReportedVideoFailure, shouldReconcileStoredVideoTaskQuery, videoTaskIdFromResultUrl } from "./video.ts";
+import { normalizeVideoSafetyFailureMessage, readApiErrorMessage, readProviderFailureMessage, readReportedOpenAIVideoFailure, reconcileReportedVideoFailure, shouldReconcileStoredVideoTaskQuery, videoTaskIdFromResultUrl } from "./video.ts";
 
 describe("video task query reconciliation", () => {
     test("reconciles queued-task 400s and transient provider query failures", () => {
@@ -42,6 +42,31 @@ describe("video task query reconciliation", () => {
         };
         expect(readReportedOpenAIVideoFailure(response)).toBe("视频内容安全审核未通过，请修改提示词或随机种子后重试");
         expect(readReportedOpenAIVideoFailure({ status: "completed", result_url: "/v1/videos/task_ok/content" })).toBe("");
+    });
+
+    test("keeps a concrete provider message when generic codes are also present", () => {
+        const response = {
+            status: "failed",
+            error: {
+                code: "provider_task_failed",
+                message: "第 1 张参考图片无法使用，请重新上传或替换素材",
+            },
+            message: "llm-error",
+        };
+        expect(readReportedOpenAIVideoFailure(response)).toBe("第 1 张参考图片无法使用，请重新上传或替换素材");
+        expect(
+            readApiErrorMessage({
+                code: 400,
+                message: "llm-error",
+                error: { code: "provider_task_failed", message: "第 1 张参考图片无法使用，请重新上传或替换素材" },
+            }),
+        ).toBe("第 1 张参考图片无法使用，请重新上传或替换素材");
+        expect(
+            readApiErrorMessage({
+                message: "llm-error",
+                detail: JSON.stringify({ error: { code: "InvalidParameter", message: "The parameter `content[1]` is not valid" } }),
+            }),
+        ).toBe("The parameter `content[1]` is not valid");
     });
 
     test("maps content safety failures and recovers the task id from content URLs", () => {

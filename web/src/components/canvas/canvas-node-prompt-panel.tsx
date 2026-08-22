@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { ArrowUp, LoaderCircle, Square } from "lucide-react";
-import { Button } from "antd";
+import { ArrowUp, LoaderCircle, Sparkles, Square } from "lucide-react";
+import { Button, message } from "antd";
 
 import { ModelPicker } from "@/components/model-picker";
 import { defaultConfig, resolveModelForCapability, useConfigStore, useEffectiveConfig, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
@@ -15,6 +15,7 @@ import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
 import { resolveUniArtReferenceLimits, uniArtVideoSubmissionError } from "@/lib/uniart-video";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { requestImageQuestion } from "@/services/api/image";
 
 export type CanvasNodeGenerationMode = CanvasGenerationMode;
 
@@ -54,6 +55,9 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
               ? null
               : "请输入提示词";
     const canSubmit = !submissionError;
+    const isH3Video = mode === "video" && /minimax[-_ ]?h3/i.test(config.model || "");
+    const promptImageReferences = activeReferences.filter((reference) => reference.kind === "image" && reference.previewUrl);
+    const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
 
     // 仅在切换到其它节点时恢复对应提示词;同一节点生成完成后继续保留当前输入。
     useEffect(() => {
@@ -70,6 +74,30 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
         const text = prompt.trim();
         if (!canSubmit || isRunning) return;
         onGenerate(node.id, mode, text);
+    };
+
+    const optimizePrompt = async () => {
+        if (!isH3Video || !promptImageReferences.length || isOptimizingPrompt) return;
+        setIsOptimizingPrompt(true);
+        try {
+            const textConfig = { ...globalConfig, model: globalConfig.textModel };
+            const content = [
+                {
+                    type: "text" as const,
+                    text: `请优化下面的视频提示词，使其更具体、可执行，并保留用户意图。只返回优化后的提示词，不要解释。\n\n原提示词：\n${prompt.trim() || "（未填写，请根据参考图生成合适的视频描述）"}`,
+                },
+                ...promptImageReferences.map((reference) => ({ type: "image_url" as const, image_url: { url: reference.previewUrl! } })),
+            ];
+            const optimized = await requestImageQuestion(textConfig, [{ role: "user", content }], () => undefined);
+            const nextPrompt = optimized.trim();
+            if (!nextPrompt || nextPrompt === "没有返回内容") throw new Error("提示词优化没有返回有效内容");
+            updatePrompt(nextPrompt);
+            message.success("提示词已优化，请确认后再提交");
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "提示词优化失败，请稍后重试");
+        } finally {
+            setIsOptimizingPrompt(false);
+        }
     };
 
     return (
@@ -94,6 +122,19 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
             <div className="mt-2 flex min-w-0 items-center justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2">
                     <CanvasPromptLibrary onSelect={updatePrompt} />
+                    {isH3Video ? (
+                        <Button
+                            type="text"
+                            size="small"
+                            loading={isOptimizingPrompt}
+                            disabled={!promptImageReferences.length || isRunning}
+                            onClick={optimizePrompt}
+                            icon={<Sparkles className="size-3.5" />}
+                            aria-label="优化提示词"
+                        >
+                            提示词优化
+                        </Button>
+                    ) : null}
                     {mode === "image" ? (
                         <>
                             <ModelPicker config={config} value={config.model} onChange={(model) => onConfigChange(node.id, { model })} capability="image" onMissingConfig={() => openConfigDialog(true)} className="max-w-[190px]" />

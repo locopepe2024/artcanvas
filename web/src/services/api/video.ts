@@ -670,7 +670,7 @@ function videoResultUrl(payload: VideoResponse | SeedanceTask) {
     );
 }
 
-function readApiErrorMessage(value: unknown): string {
+export function readApiErrorMessage(value: unknown): string {
     if (!value) return "";
     if (typeof value === "string") {
         const safetyMessage = normalizeVideoSafetyFailureMessage(value);
@@ -682,16 +682,19 @@ function readApiErrorMessage(value: unknown): string {
             return inner;
         } catch {
             if (/<[a-z][\s\S]*>/i.test(value)) return `服务返回了 HTML 错误页面（${value.slice(0, 80)}...）`;
-            return value;
+            return isGenericVideoErrorMessage(value) ? "" : value;
         }
     }
     if (typeof value !== "object") return "";
-    const payload = value as { msg?: unknown; message?: unknown; error?: unknown; detail?: unknown };
+    const payload = value as { msg?: unknown; message?: unknown; error?: unknown; detail?: unknown; data?: unknown; fail_reason?: unknown };
     const providerFailure = readProviderFailureMessage(value);
     if (providerFailure) return providerFailure;
-    // error 可能是字符串或含 message 的对象
-    const errorMsg = typeof payload.error === "string" ? payload.error : (payload.error as { message?: unknown })?.message;
-    return readApiErrorMessage(payload.msg) || readApiErrorMessage(payload.message) || readApiErrorMessage(errorMsg) || readApiErrorMessage(payload.detail) || "";
+    // 具体 provider message 优先于顶层 llm-error/provider_task_failed 等泛化字段。
+    return [payload.error, payload.detail, payload.data, payload.fail_reason, payload.message, payload.msg].map(readApiErrorMessage).find(Boolean) || "";
+}
+
+function isGenericVideoErrorMessage(value: string) {
+    return /^(?:provider_task_failed|llm[-_ ]error|badrequest|request failed|generate failed(?:: an error occurred\.)?|视频生成失败)$/i.test(value.trim());
 }
 
 export function normalizeVideoSafetyFailureMessage(value: string) {
