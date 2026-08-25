@@ -43,7 +43,7 @@ import { useAgentStore } from "@/stores/use-agent-store";
 import { useCanvasStore } from "@/stores/canvas/use-canvas-store";
 import { useAgentBridge } from "@/pages/canvas/hooks/use-agent-bridge";
 import { usePluginHost } from "@/pages/canvas/hooks/use-plugin-host";
-import { buildNodeMentionReferences, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { buildNodeMentionReferences, buildNodePromptOptimizationReferences, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { CANVAS_MAX_SCALE, CANVAS_MIN_SCALE, clampCanvasScale } from "@/lib/canvas/canvas-viewport";
 import { exportCanvasProjects } from "@/lib/canvas/canvas-export";
 import { createCanvasConnection, getCanvasConnectionValidationError, normalizeCanvasConnections } from "@/lib/canvas/canvas-connection-contract";
@@ -770,11 +770,24 @@ function InfiniteCanvasPage() {
         });
         return map;
     }, [connections, effectiveConfig.videoReferenceMode, nodes]);
+    const configOptimizationInputsById = useMemo(() => {
+        const map = new Map<string, NodeGenerationInput[]>();
+        nodes.forEach((node) => {
+            if (node.type !== CanvasNodeType.Config) return;
+            map.set(node.id, buildNodeGenerationInputs(node.id, nodes, connections));
+        });
+        return map;
+    }, [connections, nodes]);
     const mentionReferencesByNodeId = useMemo(() => {
         const map = new Map<string, ReturnType<typeof buildNodeMentionReferences>>();
         nodes.forEach((node) => map.set(node.id, buildNodeMentionReferences(node, nodes, connections, effectiveConfig.videoReferenceMode)));
         return map;
     }, [connections, effectiveConfig.videoReferenceMode, nodes]);
+    const promptOptimizationReferencesByNodeId = useMemo(() => {
+        const map = new Map<string, ReturnType<typeof buildNodePromptOptimizationReferences>>();
+        nodes.forEach((node) => map.set(node.id, buildNodePromptOptimizationReferences(node, nodes, connections)));
+        return map;
+    }, [connections, nodes]);
     const { applyAgentOps } = useAgentBridge({
         projectId,
         title: currentProject?.title,
@@ -2907,6 +2920,7 @@ function InfiniteCanvasPage() {
                 <CanvasConfigComposer
                     value={panelNode.metadata?.composerContent ?? panelNode.metadata?.prompt ?? ""}
                     inputs={configInputsById.get(panelNode.id) || []}
+                    optimizationInputs={configOptimizationInputsById.get(panelNode.id) || []}
                     videoMode={panelNode.metadata?.generationMode === "video"}
                     model={resolveModelForCapability(effectiveConfig, panelNode.metadata?.model, panelNode.metadata?.generationMode || "image")}
                     videoSeconds={panelNode.metadata?.seconds || effectiveConfig.videoSeconds}
@@ -2919,6 +2933,7 @@ function InfiniteCanvasPage() {
                     node={panelNode}
                     isRunning={runningNodeId === panelNode.id}
                     mentionReferences={mentionReferencesByNodeId.get(panelNode.id) || EMPTY_REFERENCES}
+                    optimizationReferences={promptOptimizationReferencesByNodeId.get(panelNode.id) || EMPTY_REFERENCES}
                     onPromptChange={handleNodePromptChange}
                     onConfigChange={handleConfigNodeChange}
                     onGenerate={handleGenerateNode}
@@ -2930,7 +2945,7 @@ function InfiniteCanvasPage() {
                     }}
                 />
             ),
-        [configInputsById, confirmStopGeneration, effectiveConfig.videoReferenceMode, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, renderPluginPanel, runningNodeId],
+        [configInputsById, configOptimizationInputsById, confirmStopGeneration, effectiveConfig.videoReferenceMode, handleConfigNodeChange, handleGenerateNode, handleNodePromptChange, mentionReferencesByNodeId, promptOptimizationReferencesByNodeId, renderPluginPanel, runningNodeId],
     );
 
     const renderNodeContentPanel = useCallback(

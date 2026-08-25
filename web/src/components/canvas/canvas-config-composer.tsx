@@ -14,9 +14,10 @@ import { useEffectiveConfig } from "@/stores/use-config-store";
 type CanvasConfigComposerProps = {
     value: string;
     inputs: NodeGenerationInput[];
+    optimizationInputs?: NodeGenerationInput[];
     videoMode: boolean;
     model: string;
-    videoSeconds?: string;
+    videoSeconds: string;
     videoReferenceMode?: CanvasNodeMetadata["videoReferenceMode"];
     onChange: (value: string) => void;
     onClose: () => void;
@@ -32,9 +33,9 @@ type MentionState = {
 
 export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]/g;
 
-export function CanvasConfigComposer({ value, inputs, videoMode, model, videoSeconds, videoReferenceMode, onChange, onClose }: CanvasConfigComposerProps) {
+export function CanvasConfigComposer({ value, inputs, optimizationInputs = [], videoMode, model, videoSeconds, videoReferenceMode, onChange, onClose }: CanvasConfigComposerProps) {
     const globalConfig = useEffectiveConfig();
-    const irConfig = videoSeconds ? { ...globalConfig, model, videoSeconds } : { ...globalConfig, model };
+    const irConfig = { ...globalConfig, model, videoSeconds };
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
@@ -43,7 +44,7 @@ export function CanvasConfigComposer({ value, inputs, videoMode, model, videoSec
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
     const isH3Video = videoMode && /minimax[-_ ]?h3/i.test(model || "");
-    const mediaInputs = inputs.filter((input) => (input.type === "image" && input.image?.dataUrl) || (input.type === "video" && input.video?.url) || (input.type === "audio" && input.audio?.url));
+    const mediaInputs = (optimizationInputs.length ? optimizationInputs : inputs).filter((input) => (input.type === "image" && input.image?.dataUrl) || (input.type === "video" && input.video?.url) || (input.type === "audio" && input.audio?.url));
     const tokens = useMemo(() => parseComposerTokens(value), [value]);
     const referenceById = useMemo(() => new Map(inputs.map((input) => [input.nodeId, input])), [inputs]);
     const selectedInputs = useMemo(() => {

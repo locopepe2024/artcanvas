@@ -22,7 +22,8 @@ export type H3IRReference = { kind: "image" | "video" | "audio"; previewUrl?: st
 const IR_MODEL = "minimax-h3-ir";
 
 function validateIRDuration(value: string | number | undefined) {
-    const seconds = Math.floor(Number(value) || 5);
+    const seconds = Math.floor(Number(value));
+    if (!Number.isFinite(seconds)) throw new Error("视频生成时长配置无效，请重新选择视频时长");
     if (seconds < 4 || seconds > 15) {
         throw new Error(`MiniMax H3 IR 仅支持 4–15 秒，当前视频时长为 ${seconds} 秒；请调整视频时长后再进行提示词优化`);
     }

@@ -27,11 +27,12 @@ type CanvasNodePromptPanelProps = {
     onGenerate: (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => void;
     onStop: (nodeId: string) => void;
     mentionReferences?: CanvasResourceReference[];
+    optimizationReferences?: CanvasResourceReference[];
     onImageSettingsOpenChange?: (open: boolean) => void;
     modeOverride?: CanvasNodeGenerationMode; // 插件节点用 useBuiltinPanel.mode 指定生成类型
 };
 
-export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
+export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfigChange, onGenerate, onStop, mentionReferences = [], optimizationReferences = [], onImageSettingsOpenChange, modeOverride }: CanvasNodePromptPanelProps) {
     const globalConfig = useEffectiveConfig();
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
@@ -56,7 +57,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
               : "请输入提示词";
     const canSubmit = !submissionError;
     const isH3Video = mode === "video" && /minimax[-_ ]?h3/i.test(config.model || "");
-    const promptMediaReferences = activeReferences.filter((reference) => ["image", "video", "audio"].includes(reference.kind) && reference.previewUrl);
+    const promptMediaReferences = (optimizationReferences.length ? optimizationReferences : activeReferences).filter((reference) => ["image", "video", "audio"].includes(reference.kind) && reference.previewUrl);
     const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
 
     // 仅在切换到其它节点时恢复对应提示词;同一节点生成完成后继续保留当前输入。
