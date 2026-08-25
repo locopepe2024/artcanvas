@@ -158,7 +158,7 @@ export default function VideoPage() {
         if (!isH3Video || optimizingPrompt || running) return;
         setOptimizingPrompt(true);
         try {
-            const optimized = await optimizeMiniMaxH3Prompt(effectiveConfig, prompt, [
+            const optimized = await optimizeMiniMaxH3Prompt({ ...effectiveConfig, model }, prompt, [
                 ...references.map((reference) => ({ kind: "image" as const, previewUrl: reference.dataUrl, title: reference.name })),
                 ...videoReferences.map((reference) => ({ kind: "video" as const, previewUrl: reference.url, title: reference.name })),
                 ...audioReferences.map((reference) => ({ kind: "audio" as const, previewUrl: reference.url, title: reference.name })),
