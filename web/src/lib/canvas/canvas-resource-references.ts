@@ -24,6 +24,10 @@ export function buildNodeMentionReferences(node: CanvasNodeData, nodes: CanvasNo
     return labelResourceNodes(resourceNodes, true, videoMode, videoReferenceMode);
 }
 
+export function buildNodePromptOptimizationReferences(node: CanvasNodeData, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    return labelResourceNodes(getVideoPromptOptimizationResourceNodes(node.id, nodes, connections), true, true, "omni_reference");
+}
+
 export function getMentionResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
     const configInputs = getConnectedConfigResourceNodes(nodeId, nodes, connections);
     if (configInputs.length) return configInputs;
@@ -52,6 +56,15 @@ export function getVideoGenerationResourceNodes(nodeId: string, nodes: CanvasNod
             return Boolean(kind && allowedKinds.includes(kind));
         })
         .sort((left, right) => allowedKinds.indexOf(resourceKind(left)!) - allowedKinds.indexOf(resourceKind(right)!));
+}
+
+export function getVideoPromptOptimizationResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
+    const connectedInputs = getGenerationResourceNodes(nodeId, nodes, connections);
+    const currentNode = nodes.find((node) => node.id === nodeId);
+    return [currentNode, ...connectedInputs]
+        .filter((node): node is CanvasNodeData => Boolean(node && isResourceNode(node)))
+        .filter((node, index, items) => items.findIndex((item) => item.id === node.id) === index)
+        .filter((node) => ["image", "video", "audio"].includes(resourceKind(node) || ""));
 }
 
 function getContextResourceNodes(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[]) {
