@@ -21,9 +21,12 @@ export type H3IRReference = { kind: "image" | "video" | "audio"; previewUrl?: st
 
 const IR_MODEL = "minimax-h3-ir";
 
-function normalizeIRDuration(value: string | number | undefined) {
+function validateIRDuration(value: string | number | undefined) {
     const seconds = Math.floor(Number(value) || 5);
-    return Math.min(15, Math.max(4, seconds));
+    if (seconds < 4 || seconds > 15) {
+        throw new Error(`MiniMax H3 IR 仅支持 4–15 秒，当前视频时长为 ${seconds} 秒；请调整视频时长后再进行提示词优化`);
+    }
+    return seconds;
 }
 
 export async function optimizeMiniMaxH3Prompt(config: AiConfig, prompt: string, references: H3IRReference[], signal?: AbortSignal) {
@@ -35,7 +38,7 @@ export async function optimizeMiniMaxH3Prompt(config: AiConfig, prompt: string, 
         else if (reference.kind === "video") content.push({ type: "video_url", video_url: { url }, role: "reference_video" } as const);
         else if (reference.kind === "audio") content.push({ type: "audio_url", audio_url: { url }, role: "reference_audio" } as const);
     }
-    const create = await requestIR(config, "POST", "/video/context-ir", { model: IR_MODEL, content, duration: normalizeIRDuration(config.videoSeconds), ratio: config.size || "16:9", idempotency_key: `canvas-ir-${crypto.randomUUID()}` }, signal);
+    const create = await requestIR(config, "POST", "/video/context-ir", { model: IR_MODEL, content, duration: validateIRDuration(config.videoSeconds), ratio: config.size || "16:9", idempotency_key: `canvas-ir-${crypto.randomUUID()}` }, signal);
     if (!create.id) throw new Error("提示词优化接口没有返回任务 ID");
     for (;;) {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");

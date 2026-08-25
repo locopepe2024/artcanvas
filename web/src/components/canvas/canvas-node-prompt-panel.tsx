@@ -80,7 +80,7 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
         if (!isH3Video || isOptimizingPrompt) return;
         setIsOptimizingPrompt(true);
         try {
-            const optimized = await optimizeMiniMaxH3Prompt(globalConfig, prompt, promptMediaReferences.map((reference) => ({ kind: reference.kind as "image" | "video" | "audio", previewUrl: reference.previewUrl, title: reference.title })));
+            const optimized = await optimizeMiniMaxH3Prompt(config, prompt, promptMediaReferences.map((reference) => ({ kind: reference.kind as "image" | "video" | "audio", previewUrl: reference.previewUrl, title: reference.title })));
             const nextPrompt = optimized.trim();
             if (!nextPrompt || nextPrompt === "没有返回内容") throw new Error("提示词优化没有返回有效内容");
             updatePrompt(nextPrompt);

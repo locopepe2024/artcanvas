@@ -2909,6 +2909,7 @@ function InfiniteCanvasPage() {
                     inputs={configInputsById.get(panelNode.id) || []}
                     videoMode={panelNode.metadata?.generationMode === "video"}
                     model={resolveModelForCapability(effectiveConfig, panelNode.metadata?.model, panelNode.metadata?.generationMode || "image")}
+                    videoSeconds={panelNode.metadata?.seconds || effectiveConfig.videoSeconds}
                     videoReferenceMode={panelNode.metadata?.videoReferenceMode || effectiveConfig.videoReferenceMode}
                     onChange={(composerContent) => handleConfigNodeChange(panelNode.id, { composerContent })}
                     onClose={() => setDialogNodeId(null)}

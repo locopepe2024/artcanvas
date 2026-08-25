@@ -16,6 +16,7 @@ type CanvasConfigComposerProps = {
     inputs: NodeGenerationInput[];
     videoMode: boolean;
     model: string;
+    videoSeconds?: string;
     videoReferenceMode?: CanvasNodeMetadata["videoReferenceMode"];
     onChange: (value: string) => void;
     onClose: () => void;
@@ -31,8 +32,9 @@ type MentionState = {
 
 export const CONFIG_REFERENCE_PATTERN = /@\[node:([^\]]+)\]/g;
 
-export function CanvasConfigComposer({ value, inputs, videoMode, model, videoReferenceMode, onChange, onClose }: CanvasConfigComposerProps) {
+export function CanvasConfigComposer({ value, inputs, videoMode, model, videoSeconds, videoReferenceMode, onChange, onClose }: CanvasConfigComposerProps) {
     const globalConfig = useEffectiveConfig();
+    const irConfig = videoSeconds ? { ...globalConfig, model, videoSeconds } : { ...globalConfig, model };
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const editorRef = useRef<HTMLDivElement>(null);
     const composingRef = useRef(false);
@@ -131,7 +133,7 @@ export function CanvasConfigComposer({ value, inputs, videoMode, model, videoRef
         if (!isH3Video || isOptimizingPrompt) return;
         setIsOptimizingPrompt(true);
         try {
-            const optimized = await optimizeMiniMaxH3Prompt(globalConfig, value, mediaInputs.map((input) => ({ kind: input.type as "image" | "video" | "audio", previewUrl: input.image?.dataUrl || input.video?.url || input.audio?.url, title: input.title })));
+            const optimized = await optimizeMiniMaxH3Prompt(irConfig, value, mediaInputs.map((input) => ({ kind: input.type as "image" | "video" | "audio", previewUrl: input.image?.dataUrl || input.video?.url || input.audio?.url, title: input.title })));
             const nextPrompt = optimized.trim();
             if (!nextPrompt || nextPrompt === "没有返回内容") throw new Error("提示词优化没有返回有效内容");
             onChange(nextPrompt);
