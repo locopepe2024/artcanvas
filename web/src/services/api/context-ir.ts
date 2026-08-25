@@ -21,6 +21,11 @@ export type H3IRReference = { kind: "image" | "video" | "audio"; previewUrl?: st
 
 const IR_MODEL = "minimax-h3-ir";
 
+function normalizeIRDuration(value: string | number | undefined) {
+    const seconds = Math.floor(Number(value) || 5);
+    return Math.min(15, Math.max(4, seconds));
+}
+
 export async function optimizeMiniMaxH3Prompt(config: AiConfig, prompt: string, references: H3IRReference[], signal?: AbortSignal) {
     const content: ContextIRContent[] = [{ type: "text", text: prompt.trim() || "（未填写，请根据参考素材生成合适的视频描述）" }];
     for (const reference of references) {
@@ -30,7 +35,7 @@ export async function optimizeMiniMaxH3Prompt(config: AiConfig, prompt: string, 
         else if (reference.kind === "video") content.push({ type: "video_url", video_url: { url }, role: "reference_video" } as const);
         else if (reference.kind === "audio") content.push({ type: "audio_url", audio_url: { url }, role: "reference_audio" } as const);
     }
-    const create = await requestIR(config, "POST", "/video/context-ir", { model: IR_MODEL, content, duration: Number(config.videoSeconds) || 5, ratio: config.size || "16:9", idempotency_key: `canvas-ir-${crypto.randomUUID()}` }, signal);
+    const create = await requestIR(config, "POST", "/video/context-ir", { model: IR_MODEL, content, duration: normalizeIRDuration(config.videoSeconds), ratio: config.size || "16:9", idempotency_key: `canvas-ir-${crypto.randomUUID()}` }, signal);
     if (!create.id) throw new Error("提示词优化接口没有返回任务 ID");
     for (;;) {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
