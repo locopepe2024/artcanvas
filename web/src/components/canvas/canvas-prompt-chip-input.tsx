@@ -8,6 +8,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { isImeComposing, isPlainEnterKey } from "@/lib/keyboard-event";
 import { useThemeStore } from "@/stores/use-theme-store";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { removeMentionBeforeCaret } from "@/lib/contenteditable-selection";
 
 type Props = {
     value: string;
@@ -113,7 +114,7 @@ export function CanvasPromptChipInput({ value, references, onChange, onSubmit, c
     const insertReference = (reference: CanvasResourceReference) => {
         const editor = editorRef.current;
         if (!editor) return;
-        removeActiveMention();
+        removeMentionBeforeCaret();
         const chip = createReferenceChip(reference, theme, setImagePreview);
         const space = document.createTextNode(" ");
         const selection = window.getSelection();
@@ -368,17 +369,6 @@ function serializeNodes(nodes: NodeListOf<ChildNode>) {
         else result += serializeNodes(node.childNodes);
     });
     return result;
-}
-
-function removeActiveMention() {
-    const selection = window.getSelection();
-    if (!selection?.rangeCount) return;
-    const range = selection.getRangeAt(0);
-    const text = textBeforeCaret();
-    const match = /@([^\s@]*)$/.exec(text);
-    if (!match) return;
-    range.setStart(range.startContainer, Math.max(0, range.startOffset - (match[1] || "").length - 1));
-    range.deleteContents();
 }
 
 // chip 是 contentEditable="false" 的原子块,光标紧邻它按 Backspace/Delete 时整块删除。

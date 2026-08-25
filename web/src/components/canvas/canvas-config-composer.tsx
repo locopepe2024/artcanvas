@@ -10,6 +10,7 @@ import type { NodeGenerationInput } from "./canvas-node-generation";
 import type { CanvasNodeMetadata } from "@/types/canvas";
 import { optimizeMiniMaxH3Prompt } from "@/services/api/context-ir";
 import { useEffectiveConfig } from "@/stores/use-config-store";
+import { removeMentionBeforeCaret } from "@/lib/contenteditable-selection";
 
 type CanvasConfigComposerProps = {
     value: string;
@@ -108,7 +109,7 @@ export function CanvasConfigComposer({ value, inputs, optimizationInputs = [], v
     const insertReference = (input: NodeGenerationInput) => {
         const editor = editorRef.current;
         if (!editor) return;
-        removeActiveMention();
+        removeMentionBeforeCaret();
         const chip = createReferenceChip(input, videoMode ? withCandidate(selectedInputs, input) : inputs, videoMode, videoReferenceMode, theme, setImagePreview);
         const space = document.createTextNode(" ");
         const selection = window.getSelection();
@@ -359,17 +360,6 @@ function serializeNodes(nodes: NodeListOf<ChildNode>) {
         else result += serializeNodes(node.childNodes);
     });
     return result;
-}
-
-function removeActiveMention() {
-    const selection = window.getSelection();
-    if (!selection?.rangeCount) return;
-    const range = selection.getRangeAt(0);
-    const text = textBeforeCaret();
-    const match = /@([^\s@]*)$/.exec(text);
-    if (!match) return;
-    range.setStart(range.startContainer, Math.max(0, range.startOffset - (match[1] || "").length - 1));
-    range.deleteContents();
 }
 
 function deleteAdjacentReference(key: string) {
