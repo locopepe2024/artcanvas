@@ -10,7 +10,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 - UniArt GPT Image 2.5 蒙版编辑：选择 Flare 或 Sunburst，添加参考图并绘制蒙版后提交；Canvas 应先将参考图和蒙版分别托管为 URL，再向 `/v1/images/edits` 发送 JSON `images` 与 `mask`，不得显示“URL 素材接口暂不支持蒙版编辑”。蒙版与第一张参考图尺寸一致时任务应正常创建并完成。
 - UniArt H3 2K 多参考图 Upscale：刷新 UniArt 模型能力后，若当前 H3 2K 的 `video_capability.upscale_styles` 发布 `anime`，视频工作台在“图片参考”且至少 2 张图片时显示 Upscale；选择 Anime 后请求才携带顶层 `upscale_style: "anime"`，真实感或不满足组合时不携带该字段。切换到 768P、单图、其他模式或未发布能力的模型后不得继续发送旧的 Anime 值。
 - 视频结果持久任务对账：当 `/v1/videos/:task_id` 仍返回排队/生成中，但持久任务已为 `SUCCESS` 且有 `storage.iyishow.com` `result_url` 时，Canvas 应停止“生成中”，进入结果下载/播放状态，不得继续无限轮询。
-- H3 全能参考素材入口：UniArt 返回 `omni_reference.input_types` 包含 `video`、`audio` 且返回对应数量上限时，选择全能参考应显示参考视频和参考音频上传区域；上传后素材应进入请求 `content[]`，分别使用 `video_url`、`audio_url`。
+- H3 全能参考素材入口：UniArt 返回 `omni_reference.input_types` 包含 `image`、`video`、`audio` 时，即使公开模型能力不返回候选素材数量上限，选择全能参考也应显示对应图片、视频和音频上传区域；Canvas 不猜测候选上限，上传后素材进入请求 `content[]`，由 UniArt 最终校验组合。
 - H3 受保护结果缓存降级：视频内容代理成功返回后，即使浏览器 IndexedDB 写入超过 10 秒，也应清除 Canvas 的“生成中”状态并使用同源代理 URL 播放；不得再次提交任务。
 - H3 受保护内容临时网关错误：`/api/video-content-proxy/:task_id` 对 artifact 映射期间返回 502、503 或 504 时，Canvas 应退避重试最多 5 分钟；之后仍失败才显示“视频下载失败”，不得重新提交任务。
 - Tokyo UniArt Canvas 视频模式映射：选择 Seedance 或 MiniMax H3 后，文生视频携带任意参考素材应在提交前拦截；图生视频仅提交 1 张图片并标记 `first_frame`；首尾帧仅提交 2 张图片并分别标记 `first_frame`、`last_frame`；全能参考按图片 → 视频 → 音频顺序提交并遵守服务端能力上限。

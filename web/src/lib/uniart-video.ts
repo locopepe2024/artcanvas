@@ -10,6 +10,11 @@ export type UniArtVideoReferenceLimits = {
     maxAudios: number;
 };
 
+// UniArt's public model capability intentionally publishes input kinds but not
+// candidate-specific quantity limits. Infinity means "supported, server-owned
+// admission limit"; zero remains the only unsupported value.
+export const SERVER_VALIDATED_REFERENCE_LIMIT = Number.POSITIVE_INFINITY;
+
 /** H3 提示词优化按模型家族开放；生成参数仍只读取 UniArt 发布的能力数据。 */
 export function isMiniMaxH3Model(value: string) {
     return /(?:^|[^a-z0-9])minimax[-_ ]?h3(?:[^a-z0-9]|$)/i.test(value);
@@ -61,14 +66,19 @@ export function resolveUniArtReferenceLimits(capability: UniArtVideoCapability, 
     const modeDefinition = capability.modes.find((item) => (mode === "first_last_frames" ? item.id === "first_last_frame" : item.id === mode));
     if (mode === "image_to_video") return { mode, maxImages: modeDefinition?.inputTypes.includes("image") ? 1 : 0, maxVideos: 0, maxAudios: 0 };
     if (mode === "first_last_frames") return { mode, maxImages: modeDefinition?.inputTypes.includes("image") ? 2 : 0, maxVideos: 0, maxAudios: 0 };
-    if (mode === "image_reference") return { mode, maxImages: modeDefinition?.inputTypes.includes("image") ? capability.maxReferenceImages || 0 : 0, maxVideos: 0, maxAudios: 0 };
+    if (mode === "image_reference") return { mode, maxImages: publishedReferenceLimit(modeDefinition?.inputTypes.includes("image") === true, capability.maxReferenceImages), maxVideos: 0, maxAudios: 0 };
     const inputs = modeDefinition?.inputTypes || [];
     return {
         mode,
-        maxImages: inputs.includes("image") ? capability.maxReferenceImages || 0 : 0,
-        maxVideos: inputs.includes("video") ? capability.maxReferenceVideos || 0 : 0,
-        maxAudios: inputs.includes("audio") ? capability.maxReferenceAudios || 0 : 0,
+        maxImages: publishedReferenceLimit(inputs.includes("image"), capability.maxReferenceImages),
+        maxVideos: publishedReferenceLimit(inputs.includes("video"), capability.maxReferenceVideos),
+        maxAudios: publishedReferenceLimit(inputs.includes("audio"), capability.maxReferenceAudios),
     };
+}
+
+function publishedReferenceLimit(supported: boolean, limit?: number) {
+    if (!supported) return 0;
+    return limit === undefined ? SERVER_VALIDATED_REFERENCE_LIMIT : limit;
 }
 
 export function uniArtVideoSubmissionError(
@@ -84,11 +94,12 @@ export function uniArtVideoSubmissionError(
         return prompt.trim() ? null : "文生视频需要填写提示词";
     }
     if (mode === "image_to_video" && (!limits?.maxImages || images !== 1 || videos || audios)) return limits?.maxImages ? "图生视频模式需要且只能使用 1 张图片" : "UniArt 尚未发布图生视频图片输入能力，请刷新模型能力";
-    if (mode === "image_reference" && (!limits?.maxImages || images < 1 || images > limits.maxImages || videos || audios)) return limits?.maxImages ? `图片参考模式需要使用 1 至 ${limits.maxImages} 张图片` : "UniArt 尚未发布图片参考数量能力，请刷新模型能力";
+    if (mode === "image_reference" && (!limits?.maxImages || images < 1 || images > limits.maxImages || videos || audios))
+        return limits?.maxImages ? (Number.isFinite(limits.maxImages) ? `图片参考模式需要使用 1 至 ${limits.maxImages} 张图片` : "图片参考模式至少需要使用 1 张图片") : "UniArt 尚未发布图片参考输入能力，请刷新模型能力";
     if (mode === "first_last_frames" && (!limits?.maxImages || images !== 2 || videos || audios)) return limits?.maxImages ? "首尾帧模式需要且只能使用 2 张图片，第 1 张为首帧，第 2 张为尾帧" : "UniArt 尚未发布首尾帧图片输入能力，请刷新模型能力";
     if (mode === "omni_reference") {
         if (mediaCount < 1) return "全能参考模式至少需要 1 个图片、视频或音频素材";
-        if (!limits || (!limits.maxImages && !limits.maxVideos && !limits.maxAudios)) return "UniArt 尚未发布全能参考素材能力，请刷新模型列表";
+        if (!limits || (!limits.maxImages && !limits.maxVideos && !limits.maxAudios)) return "UniArt 尚未发布全能参考素材输入能力，请刷新模型列表";
         if (images > limits.maxImages || videos > limits.maxVideos || audios > limits.maxAudios) return "参考素材数量超过 UniArt 当前模型能力上限";
     }
     return null;

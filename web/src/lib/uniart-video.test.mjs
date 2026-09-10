@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 
 import { buildUniArtOfficialContent } from "../services/api/video.ts";
 import { minimaxH3Adapter } from "../services/api/video-adapters/minimax-h3.ts";
-import { isMiniMaxH3Model, preferredUniArtImageReferenceMode, resolveUniArtReferenceLimits, resolveUniArtVideoParams, uniArtVideoParamsError, uniArtVideoSubmissionError } from "./uniart-video.ts";
+import { isMiniMaxH3Model, preferredUniArtImageReferenceMode, resolveUniArtReferenceLimits, resolveUniArtVideoParams, SERVER_VALIDATED_REFERENCE_LIMIT, uniArtVideoParamsError, uniArtVideoSubmissionError } from "./uniart-video.ts";
 
 describe("UniArt video reference mode selection", () => {
     test("keeps H3 prompt optimization active before detailed capability refresh completes", () => {
@@ -34,11 +34,12 @@ describe("UniArt video reference mode selection", () => {
         expect(preferredUniArtImageReferenceMode(capability)).toBe("image_reference");
     });
 
-    test("uses only the published capability for omni-reference inputs", () => {
+    test("uses published input types when UniArt keeps quantity admission server-side", () => {
         const capability = {
             modes: [{ id: "omni_reference", inputTypes: ["image", "audio"] }],
         };
-        expect(resolveUniArtReferenceLimits(capability, "omni_reference")).toEqual({ mode: "omni_reference", maxImages: 0, maxVideos: 0, maxAudios: 0 });
+        expect(resolveUniArtReferenceLimits(capability, "omni_reference")).toEqual({ mode: "omni_reference", maxImages: SERVER_VALIDATED_REFERENCE_LIMIT, maxVideos: 0, maxAudios: SERVER_VALIDATED_REFERENCE_LIMIT });
+        expect(uniArtVideoSubmissionError("omni_reference", "", { images: 1, videos: 0, audios: 1 }, resolveUniArtReferenceLimits(capability, "omni_reference"))).toBeNull();
     });
 
     test("exposes omni audio/video inputs from the published limits", () => {

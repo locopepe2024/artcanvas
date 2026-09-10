@@ -140,10 +140,12 @@ export default function VideoPage() {
               ? "请添加 1 张主体或起始画面"
               : referenceLimits.mode === "image_reference"
                 ? referenceLimits.maxImages
-                    ? `请添加 1 至 ${referenceLimits.maxImages} 张参考图片`
+                    ? Number.isFinite(referenceLimits.maxImages)
+                        ? `请添加 1 至 ${referenceLimits.maxImages} 张参考图片`
+                        : "请添加至少 1 张参考图片，数量组合由 UniArt 校验"
                     : "该模型未声明图片参考数量能力"
                 : referenceLimits.maxImages
-                  ? "可添加多张参考图片"
+                  ? "可添加参考图片，数量组合由 UniArt 校验"
                   : "该模型未声明参考图片能力";
     const promptMentionReferences = useMemo(() => buildVideoReferenceMentions(references, videoReferences, audioReferences, referenceLimits.mode), [references, videoReferences, audioReferences, referenceLimits.mode]);
     const videoParamsError = uniArtCapability ? uniArtVideoParamsError(resolveUniArtVideoParams(uniArtCapability, { seconds: effectiveConfig.videoSeconds, ratio: effectiveConfig.size, resolution: effectiveConfig.vquality })) : null;
