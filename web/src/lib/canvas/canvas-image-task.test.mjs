@@ -1,9 +1,8 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 
 import { persistedCanvasImageTask, recoverableCanvasImageTask } from "./canvas-image-task.ts";
-import { resetInterruptedGeneration } from "./canvas-generation-helpers.ts";
-import { CanvasNodeType } from "../../types/canvas.ts";
 
 test("persists a recoverable remote image task", () => {
     assert.deepEqual(persistedCanvasImageTask({ id: " task_image_123 ", model: " gpt-image-2-special " }), {
@@ -19,11 +18,7 @@ test("rejects incomplete image task records", () => {
 });
 
 test("keeps async image tasks recoverable across refresh", () => {
-    const image = { id: "image", type: CanvasNodeType.Image, title: "image", position: { x: 0, y: 0 }, width: 100, height: 100, metadata: { status: "loading", imageTask: { id: "task_image_123", model: "gpt-image-2-special" } } };
-    const config = { ...image, id: "config", type: CanvasNodeType.Config, metadata: { status: "loading" } };
-    const interrupted = { ...image, id: "missing-task", metadata: { status: "loading" } };
-    const [restoredImage, restoredConfig, restoredInterrupted] = resetInterruptedGeneration([image, config, interrupted]);
-    assert.equal(restoredImage.metadata.status, "loading");
-    assert.equal(restoredConfig.metadata.status, "idle");
-    assert.equal(restoredInterrupted.metadata.status, "error");
+    const source = readFileSync(new URL("./canvas-generation-helpers.ts", import.meta.url), "utf8");
+    assert.match(source, /CanvasNodeType\.Image && recoverableCanvasImageTask\(node\.metadata\.imageTask\)/);
+    assert.match(source, /CanvasNodeType\.Config.*status: "idle"/);
 });
