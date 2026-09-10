@@ -1,0 +1,31 @@
+---
+title: UniArt 视频 Provider Adapter 边界
+description: Seedance 与 MiniMax H3 的 Canvas 请求适配边界
+---
+
+# UniArt 视频 Provider Adapter 边界
+
+## Observed
+
+- Seedance 使用 `/contents/generations/tasks`，并保留其参考素材索引提示词约定。
+- MiniMax H3 使用官方兼容的 `/videos` `content[]` 合同。
+- 两者共享 Canvas 的能力读取、参数归一化、任务状态和结果下载编排，但素材角色不是同一个 provider 合同。
+- 能力数量、比例、分辨率、时长以及可选字段是否可发送，唯一取自 UniArt `/v1/models` 的 `video_capability`；adapter 不负责推断模型能力。
+
+## Direct implication
+
+- `services/api/video.ts` 只负责模型选择、任务编排、轮询和结果归档。
+- `services/api/video-adapters/seedance.ts` 负责 Seedance 特有的素材角色/提示词规则。
+- `services/api/video-adapters/minimax-h3.ts` 负责 H3 的 `content[]` 与首尾帧角色规则。
+
+## Not yet proven
+
+- Tokyo 实例上每个 H3/Seedance SKU 的能力快照是否都已刷新到最新版本，仍需远程读取 `/v1/models` 验证。
+
+## Success criteria
+
+- 文生视频不携带参考素材。
+- 图生视频只提交一个 `first_frame`。
+- 首尾帧只提交 `first_frame` 与 `last_frame`。
+- 全能参考保持图片 → 视频 → 音频顺序与 UniArt 当前发布的各自上限；缺失上限时不得提交对应素材。
+- 两个 adapter 可独立测试，且通用任务轮询不依赖 provider 素材细节。

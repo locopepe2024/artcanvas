@@ -45,4 +45,13 @@ describe("managed browser storage schema", () => {
         expect(acceptedTaskBlock.indexOf("void pollGenerationLog(log")).toBeGreaterThan(-1);
         expect(acceptedTaskBlock.indexOf("await persistLogRecord(log)")).toBeGreaterThan(acceptedTaskBlock.indexOf("void pollGenerationLog(log"));
     });
+
+    test("settles foreground video state before terminal log persistence", () => {
+        const source = readFileSync(new URL("../pages/video/index.tsx", import.meta.url), "utf8");
+        const pollingBlock = source.slice(source.indexOf("const pollGenerationLog = async"), source.indexOf("const recoverGenerationTask", source.indexOf("const pollGenerationLog = async")));
+        const successSave = pollingBlock.indexOf('await saveLogSafely({ ...log, status: "成功"');
+        const failureSave = pollingBlock.indexOf('await saveLogSafely({ ...log, status: "失败"');
+        expect(pollingBlock.lastIndexOf("setRunning(false)", successSave)).toBeGreaterThan(-1);
+        expect(pollingBlock.lastIndexOf("setRunning(false)", failureSave)).toBeGreaterThan(successSave);
+    });
 });

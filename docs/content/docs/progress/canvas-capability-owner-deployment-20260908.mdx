@@ -1,0 +1,50 @@
+---
+title: Canvas UniArt 能力 owner 部署记录
+description: Canvas 视频能力读取、视频代理和生产切换证据
+---
+
+# Canvas UniArt 能力 owner 部署记录
+
+## Observed
+
+- 部署目标为 `iyi-sgp`（`198.13.130.245`），公网入口为 `https://canvas.uniart.fun`。
+- 部署前公网 bundle 为 `index-RD5GL5Xd.js`，运行容器为 `infinite-canvas-test`，镜像为 `artcanvas:uniart-canvas-explicit-mode-20260828`，监听主机 `3011`。
+- 新镜像 `artcanvas:uniart-capability-owner-20260908` 的 image ID 为 `sha256:1049917af9e656e1243c1471272f4fdcebd4f834294c579cc2787fa68d6ec29f`。
+- 修复镜像 `artcanvas:uniart-capability-owner-20260908-r2` 已在 SGP 远程构建并通过 `3013` 临时端口验证，当前容器 `infinite-canvas-capability-owner` 已切换到该镜像并运行在主机 `3012`。
+- 当前容器继续挂载 `/opt/artcanvas-test/data/video-assets`，restart policy 为 `unless-stopped`；旧镜像容器保留为 `infinite-canvas-capability-owner-rollback-r2` 并已停止。
+- Nginx 配置已通过 `nginx -t`，`canvas.uniart.fun` 当前转发到 `127.0.0.1:3012`。
+- 新容器 asset-server `/health` 返回 `{"ok":true}`。
+- 公网入口已返回新 bundle `index-CHLZnmsA.js`；bundle 中可检索到 `ratios_by_resolution`、`first_last_frame` 和 `omni_reference`。
+- 本次修复后的公网入口返回 `index-SoAPQeOY.js`；主 bundle 与 CSS 的 Range 请求均返回 `206`，首页返回 `200`。
+- 旧容器未删除，已停止；旧镜像和 Nginx 配置备份仍保留。
+- 2026-09-09 已部署 `artcanvas:uniart-upscale-20260909` 到 `infinite-canvas-capability-owner`；临时端口 `3013` 验证首页 200、bundle 含 `upscale_styles` 能力读取和 `upscale_style` 请求字段后切换正式端口 `3012`。
+- 当前公网 bundle 为 `index-BgL-xkYD.js`，正式容器运行中、restart count 为 0；旧镜像保留为 `infinite-canvas-capability-owner-rollback-20260909-upscale` 并已停止。
+- 2026-09-10 已基于当前生产源码包部署 H3 提示词优化启用修复：新镜像为 `artcanvas:h3-prompt-optimize-fix-20260910`，正式容器继续使用 `infinite-canvas-capability-owner` 和主机端口 `3012`，公网 bundle 为 `index-CgRTERVv.js`。
+- 新镜像先在临时端口 `3013` 验证首页 200、H3 提示词优化入口静态产物存在和容器零重启，再切换正式入口；切换后本机与公网首页均返回 200，Nginx 配置检查通过。
+- 本次回滚容器为 `infinite-canvas-capability-owner-rollback-20260910-h3-prompt`，保留旧镜像 `artcanvas:uniart-video-download-retry-20260910` 并处于停止状态。
+- 2026-09-10 针对任务内容已经成功返回但视频创作台仍保持“生成中”的问题，确认 `task_pT8Ly3MISEaPDr2FiGbcSqWxJO05WCtJ` 的内容代理先返回 4 次 503，随后于 09:41:14 UTC 返回 200 和 8,181,379 字节；故障边界位于浏览器终态日志持久化，而非 UniArt 任务状态或内容代理。
+- 修复镜像 `artcanvas:video-terminal-state-fix-20260910` 将成功/失败 UI 终态更新移动到 IndexedDB 日志保存之前；日志写入阻塞或失败不再锁住生成状态。镜像经临时端口 `3013` 验证后切换到正式 `3012`，公网 bundle 为 `index-CXG2yGBt.js`，容器运行且 restart count 为 0。
+- 切换前的 H3 修复镜像保留为 `infinite-canvas-capability-owner-rollback-20260910-pre-terminal-state`；更早的视频下载重试镜像仍保留为 `infinite-canvas-capability-owner-rollback-20260910-h3-prompt`。
+
+## Direct implication
+
+- Canvas 当前已经运行包含 UniArt 视频能力唯一 owner 逻辑、Provider adapter 和视频播放代理的新版本。
+- Canvas 不再需要通过模型名称推断 H3/Seedance 的比例、输入类型、参考素材数量或可选字段。
+- 旧版本仍可通过停止新容器、恢复 Nginx 备份并启动旧容器回滚。
+
+## Not yet proven
+
+- 尚未使用真实用户 API key 拉取 `/v1/models` 并逐项核对 H3 720P、2K 的生产 capability payload。
+- 尚未提交新的付费 1:1 视频任务，因此本次部署没有验证真实视频生成扣费和上游结果。
+- 尚未完成登录态浏览器人工验收；当前已完成公网 HTML、bundle、Nginx 和 asset-server 运行验证。
+- 尚未用真实 UniArt capability 响应确认生产模型是否发布 `video_capability.upscale_styles`，也未提交付费 H3 2K 多参考图任务；因此 Upscale 的真实上游接受与生成结果仍待用户手动验证。
+- 2026-09-09 针对持久任务已成功但 Canvas 仍显示生成中的问题，新增轮询对账：上游 `/v1/videos/:task_id` 仍为 pending 时，也查询 `/video/generations/:task_id`，发现 `SUCCESS + result_url` 即收敛到结果。
+- 该修复镜像为 `artcanvas:uniart-video-reconcile-20260909`，已通过临时端口 `3013` 首页验证并切换到正式端口 `3012`；当前公网 bundle 为 `index-CSi9fBSO.js`，容器 restart count 为 0。旧镜像保留为 `infinite-canvas-capability-owner-rollback-20260909-reconcile`。
+- 2026-09-10 针对受保护视频内容代理的临时 502/503/504，新增最多 5 分钟退避重试；镜像为 `artcanvas:uniart-video-download-retry-20260910`，已通过 `3013` 临时容器验证并切换正式容器，旧镜像保留为 `infinite-canvas-capability-owner-rollback-20260910-download`。
+
+## Rollback boundary
+
+- 新容器：`infinite-canvas-capability-owner`，端口 `3012`。
+- 旧容器：`infinite-canvas-test`，端口 `3011`，当前为 stopped，未删除。
+- Nginx 备份：`/etc/nginx/sites-available/canvas.uniart.fun.pre-capability-owner-20260908`。
+- 回滚前应先停止新容器，再恢复 Nginx 备份、执行 `nginx -t && systemctl reload nginx`，最后启动旧容器。

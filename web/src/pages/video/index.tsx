@@ -13,7 +13,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration } from "@/lib/image-utils";
 import { boolConfig, isSeedanceVideoConfig, normalizeSeedanceRatio, seedanceReferenceLabel, seedanceVideoReferenceError, seedanceVideoReferenceHint, SEEDANCE_REFERENCE_LIMITS, SEEDANCE_VIDEO_MIME_TYPES } from "@/lib/seedance-video";
 import { buildVideoReferenceMentions } from "@/lib/video-reference-mentions";
-import { preferredUniArtImageReferenceMode, resolveUniArtReferenceLimits, uniArtVideoSubmissionError } from "@/lib/uniart-video";
+import { isMiniMaxH3Model, preferredUniArtImageReferenceMode, resolveUniArtReferenceLimits, resolveUniArtVideoParams, uniArtVideoParamsError, uniArtVideoSubmissionError } from "@/lib/uniart-video";
 import { collectMediaStorageKeys, deleteStoredMedia, resolveMediaUrl } from "@/services/file-storage";
 import { collectImageStorageKeys, deleteStoredImages, resolveImageUrl } from "@/services/image-storage";
 import { createVideoGenerationTask, isRetryableVideoTaskQueryError, storeGeneratedVideo, waitForVideoGenerationTask, type VideoGenerationTask } from "@/services/api/video";
@@ -69,7 +69,7 @@ type GenerationLog = {
     error?: string;
 };
 
-type GenerationLogConfig = Pick<AiConfig, "model" | "videoModel" | "size" | "vquality" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoReferenceMode" | "videoFaceMode">;
+type GenerationLogConfig = Pick<AiConfig, "model" | "videoModel" | "size" | "vquality" | "videoSeconds" | "videoGenerateAudio" | "videoWatermark" | "videoReferenceMode" | "videoFaceMode" | "upscaleStyle">;
 
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 
@@ -139,18 +139,21 @@ export default function VideoPage() {
             : referenceLimits.mode === "image_to_video"
               ? "请添加 1 张主体或起始画面"
               : referenceLimits.mode === "image_reference"
-                ? "请添加 1 至 9 张参考图片"
+                ? referenceLimits.maxImages
+                    ? `请添加 1 至 ${referenceLimits.maxImages} 张参考图片`
+                    : "该模型未声明图片参考数量能力"
                 : referenceLimits.maxImages
                   ? "可添加多张参考图片"
                   : "该模型未声明参考图片能力";
     const promptMentionReferences = useMemo(() => buildVideoReferenceMentions(references, videoReferences, audioReferences, referenceLimits.mode), [references, videoReferences, audioReferences, referenceLimits.mode]);
+    const videoParamsError = uniArtCapability ? uniArtVideoParamsError(resolveUniArtVideoParams(uniArtCapability, { seconds: effectiveConfig.videoSeconds, ratio: effectiveConfig.size, resolution: effectiveConfig.vquality })) : null;
     const submissionError = uniArtCapability
-        ? uniArtVideoSubmissionError(referenceLimits.mode, prompt, { images: references.length, videos: videoReferences.length, audios: audioReferences.length })
+        ? videoParamsError || uniArtVideoSubmissionError(referenceLimits.mode, prompt, { images: references.length, videos: videoReferences.length, audios: audioReferences.length }, referenceLimits)
         : prompt.trim()
           ? null
           : "请输入视频提示词";
     const canGenerate = !submissionError;
-    const isH3Video = /h3/i.test(`${modelOptionName(model)} ${modelOptionLabel(effectiveConfig, model)}`);
+    const isH3Video = isMiniMaxH3Model(`${modelOptionName(model)} ${modelOptionLabel(effectiveConfig, model)}`);
     const hasPromptOptimizationReferences = references.length + videoReferences.length + audioReferences.length > 0;
     const promptOptimizationHint = !isH3Video ? "请选择 MiniMax H3 模型" : hasPromptOptimizationReferences ? "使用提示词和参考素材优化" : "使用当前提示词优化";
 
@@ -388,8 +391,9 @@ export default function VideoPage() {
         const latestLimits = latestCapability
             ? resolveUniArtReferenceLimits(latestCapability, latestConfig.videoReferenceMode)
             : { mode: "image_reference" as const, maxImages: latestSeedance ? SEEDANCE_REFERENCE_LIMITS.images : 0, maxVideos: latestSeedance ? SEEDANCE_REFERENCE_LIMITS.videos : 0, maxAudios: latestSeedance ? SEEDANCE_REFERENCE_LIMITS.audios : 0 };
+        const latestParamsError = latestCapability ? uniArtVideoParamsError(resolveUniArtVideoParams(latestCapability, { seconds: latestConfig.videoSeconds, ratio: latestConfig.size, resolution: latestConfig.vquality })) : null;
         const latestSubmissionError = latestCapability
-            ? uniArtVideoSubmissionError(latestLimits.mode, text, { images: references.length, videos: videoReferences.length, audios: audioReferences.length })
+            ? latestParamsError || uniArtVideoSubmissionError(latestLimits.mode, text, { images: references.length, videos: videoReferences.length, audios: audioReferences.length }, latestLimits)
             : text
               ? null
               : "请输入视频提示词";
@@ -633,13 +637,21 @@ export default function VideoPage() {
                 bytes: stored.bytes,
                 mimeType: stored.mimeType,
             };
-            if (presentResult) setResults([{ id: nextVideo.id, status: "success", video: nextVideo }]);
+            if (presentResult) {
+                setResults([{ id: nextVideo.id, status: "success", video: nextVideo }]);
+                setRunning(false);
+                setStartedAt(0);
+            }
             if (agentTaskId) updateAgentTask(agentTaskId, { status: "succeeded", successCount: 1, failCount: 0, error: undefined });
             await saveLogSafely({ ...log, status: "成功", durationMs: nextVideo.durationMs, video: nextVideo, error: undefined }, false);
             if (presentResult) message.success("视频已生成");
         } catch (error) {
             const errorMessage = error instanceof Error ? error.message : "生成失败";
-            if (presentResult) setResults([{ id: log.id, status: "failed", error: errorMessage }]);
+            if (presentResult) {
+                setResults([{ id: log.id, status: "failed", error: errorMessage }]);
+                setRunning(false);
+                setStartedAt(0);
+            }
             if (agentTaskId) updateAgentTask(agentTaskId, { status: "failed", successCount: 0, failCount: 1, error: errorMessage });
             await saveLogSafely({ ...log, status: "失败", durationMs: Date.now() - log.createdAt, error: errorMessage }, false);
             if (presentResult) message.error(errorMessage);
@@ -919,7 +931,7 @@ export default function VideoPage() {
                             </div>
 
                             <div className="hidden gap-4 sm:grid sm:grid-cols-2">
-                                <GenerationSettings config={effectiveConfig} model={model} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
+                                <GenerationSettings config={effectiveConfig} model={model} referenceImageCount={references.length} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
                             </div>
                         </div>
 
@@ -981,7 +993,7 @@ export default function VideoPage() {
             </Drawer>
             <Drawer title="参数" placement="bottom" height="82vh" open={settingsOpen} onClose={() => setSettingsOpen(false)}>
                 <div className="grid grid-cols-2 gap-3 pb-4">
-                    <GenerationSettings config={effectiveConfig} model={model} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
+                    <GenerationSettings config={effectiveConfig} model={model} referenceImageCount={references.length} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
                 </div>
             </Drawer>
             <PromptSelectDialog open={promptDialogOpen} onOpenChange={setPromptDialogOpen} onSelect={setPrompt} />
@@ -1008,7 +1020,7 @@ export default function VideoPage() {
     );
 }
 
-function GenerationSettings({ config, model, updateConfig, openConfigDialog }: { config: AiConfig; model: string; updateConfig: UpdateAiConfig; openConfigDialog: (shouldPromptContinue?: boolean) => void }) {
+function GenerationSettings({ config, model, referenceImageCount, updateConfig, openConfigDialog }: { config: AiConfig; model: string; referenceImageCount: number; updateConfig: UpdateAiConfig; openConfigDialog: (shouldPromptContinue?: boolean) => void }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
 
     return (
@@ -1018,7 +1030,7 @@ function GenerationSettings({ config, model, updateConfig, openConfigDialog }: {
                 <ModelPicker config={config} value={model} onChange={(value) => updateConfig("videoModel", value)} capability="video" fullWidth onMissingConfig={() => openConfigDialog(false)} />
             </label>
             <div className="col-span-2">
-                <VideoSettingsPanel config={config} model={model} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} showTitle={false} className="space-y-4" showReferenceModes={false} />
+                <VideoSettingsPanel config={config} model={model} referenceImageCount={referenceImageCount} onConfigChange={(key, value) => updateConfig(key, value)} theme={theme} showTitle={false} className="space-y-4" showReferenceModes={false} />
             </div>
         </>
     );
@@ -1283,6 +1295,7 @@ function normalizeLogConfig(log: Partial<GenerationLog>): GenerationLogConfig {
         videoWatermark: log.config?.videoWatermark || "false",
         videoReferenceMode: log.config?.videoReferenceMode || "image_reference",
         videoFaceMode: log.config?.videoFaceMode || "false",
+        upscaleStyle: log.config?.upscaleStyle === "anime" ? "anime" : "realistic",
     };
 }
 
@@ -1321,6 +1334,7 @@ function buildLog({
         videoWatermark: config.videoWatermark,
         videoReferenceMode: config.videoReferenceMode,
         videoFaceMode: config.videoFaceMode,
+        upscaleStyle: config.upscaleStyle,
     };
     return {
         id: nanoid(),

@@ -10,6 +10,7 @@ import type { NodeGenerationInput } from "./canvas-node-generation";
 import type { CanvasNodeMetadata } from "@/types/canvas";
 import { optimizeMiniMaxH3Prompt } from "@/services/api/context-ir";
 import { useEffectiveConfig } from "@/stores/use-config-store";
+import { isMiniMaxH3Model } from "@/lib/uniart-video";
 import { removeMentionBeforeCaret } from "@/lib/contenteditable-selection";
 
 type CanvasConfigComposerProps = {
@@ -44,7 +45,7 @@ export function CanvasConfigComposer({ value, inputs, optimizationInputs = [], v
     const [activeIndex, setActiveIndex] = useState(0);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
     const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
-    const isH3Video = videoMode && /minimax[-_ ]?h3/i.test(model || "");
+    const isH3Video = videoMode && isMiniMaxH3Model(model || "");
     const mediaInputs = (optimizationInputs.length ? optimizationInputs : inputs).filter((input) => (input.type === "image" && input.image?.dataUrl) || (input.type === "video" && input.video?.url) || (input.type === "audio" && input.audio?.url));
     const tokens = useMemo(() => parseComposerTokens(value), [value]);
     const referenceById = useMemo(() => new Map(inputs.map((input) => [input.nodeId, input])), [inputs]);
@@ -67,7 +68,8 @@ export function CanvasConfigComposer({ value, inputs, optimizationInputs = [], v
     useEffect(() => {
         const editor = editorRef.current;
         if (!editor) return;
-        if (document.activeElement === editor) {
+        const currentValue = serializeEditor(editor);
+        if (currentValue === value) {
             refreshReferenceChipLabels(editor, videoMode ? selectedInputs : inputs, videoMode, videoReferenceMode);
             return;
         }
@@ -80,7 +82,7 @@ export function CanvasConfigComposer({ value, inputs, optimizationInputs = [], v
             const input = referenceById.get(token.nodeId);
             if (input) editor.append(createReferenceChip(input, videoMode ? selectedInputs : inputs, videoMode, videoReferenceMode, theme, setImagePreview));
         });
-    }, [inputs, referenceById, selectedInputs, theme, tokens, videoMode, videoReferenceMode]);
+    }, [inputs, referenceById, selectedInputs, theme, tokens, value, videoMode, videoReferenceMode]);
 
     const syncFromEditor = () => {
         const editor = editorRef.current;
@@ -138,6 +140,11 @@ export function CanvasConfigComposer({ value, inputs, optimizationInputs = [], v
             const optimized = await optimizeMiniMaxH3Prompt(irConfig, value, mediaInputs.map((input) => ({ kind: input.type as "image" | "video" | "audio", previewUrl: input.image?.dataUrl || input.video?.url || input.audio?.url, title: input.title })));
             const nextPrompt = optimized.trim();
             if (!nextPrompt || nextPrompt === "没有返回内容") throw new Error("提示词优化没有返回有效内容");
+            const editor = editorRef.current;
+            if (editor) {
+                editor.textContent = nextPrompt;
+                placeCaretAtEnd(editor);
+            }
             onChange(nextPrompt);
             message.success("提示词已优化，请确认后再提交");
         } catch (error) {

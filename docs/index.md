@@ -19,7 +19,9 @@
 - [画布数据结构](/docs/development/canvas-data-structure)
 - [开源多媒体 Agent v0 架构规范](/docs/development/open-multimedia-agent-v0)
 - [视频参考素材索引契约](/docs/development/video-reference-index-contract)
+- [UniArt 视频 Provider Adapter 边界](/docs/development/uniart-video-provider-adapters)
 - [视频任务查询契约](/docs/development/video-task-polling-contract)
+- [Canvas UniArt 能力 owner 部署记录](/docs/progress/canvas-capability-owner-deployment-20260908)
 
 ## 商务合作
 

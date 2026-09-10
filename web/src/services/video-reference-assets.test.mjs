@@ -25,4 +25,26 @@ describe("video reference asset storage", () => {
         expect(source).toContain("if (isCanvasVideoAssetUrl(directUrl)) return directUrl");
         expect(source).toContain("if (isCanvasVideoAssetUrl(reference.url)) return reference.url");
     });
+
+    test("UniArt image edits submit hosted URLs as JSON", () => {
+        const source = readFileSync(new URL("./api/image.ts", import.meta.url), "utf8");
+        expect(source).toContain("if (isUniArtApiUrl(requestConfig.baseUrl))");
+        expect(source).toContain("uploadVideoReferenceAsset(file, undefined, options?.signal)");
+        expect(source).toContain("images,");
+        expect(source).toContain("const maskUrl = mask ? await resolveUniArtImageReferenceUrl(mask, options) : undefined");
+        expect(source).toContain("...(maskUrl ? { mask: maskUrl } : {}),");
+        expect(source).not.toContain("UniArt URL 素材接口暂不支持蒙版编辑");
+        expect(source).toContain('aiHeaders(requestConfig, "application/json")');
+    });
+
+    test("all video reference modes resolve local media to hosted URLs", () => {
+        const source = readFileSync(new URL("./api/video.ts", import.meta.url), "utf8");
+        expect(source).toContain("resolveSeedanceImageUrl(image, options)");
+        expect(source).toContain("resolveSeedanceVideoUrl(video, options)");
+        expect(source).toContain("resolveSeedanceAudioUrl(audio, options)");
+        expect(source).toContain("uploadVideoReferenceAsset(file, undefined, options?.signal)");
+        expect(source).toContain("uploadVideoReferenceAsset(blob, video.name, options?.signal)");
+        expect(source).toContain("uploadVideoReferenceAsset(blob, audio.name, options?.signal)");
+        expect(source).not.toContain("return blobToDataUrl(blob)");
+    });
 });

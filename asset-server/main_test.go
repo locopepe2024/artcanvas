@@ -145,8 +145,10 @@ func TestUploadRateLimit(t *testing.T) {
 }
 
 func TestAuthenticatedVideoContentProxy(t *testing.T) {
+	upstreamRequests := 0
 	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Path != "/v1/videos/task_abc123/content" || r.Header.Get("Authorization") != "Bearer test-token" || r.Header.Get("Range") != "bytes=0-3" {
+		upstreamRequests++
+		if r.URL.Path != "/v1/videos/task_abc123/content" || r.Header.Get("Authorization") != "Bearer test-token" || (upstreamRequests == 1 && r.Header.Get("Range") != "bytes=0-3") {
 			t.Fatalf("unexpected upstream request: path=%s auth=%s range=%s", r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("Range"))
 		}
 		return &http.Response{
@@ -167,6 +169,18 @@ func TestAuthenticatedVideoContentProxy(t *testing.T) {
 	server.proxyVideoContent(response, request)
 	if response.Code != http.StatusPartialContent || response.Header().Get("Content-Range") != "bytes 0-3/8" || response.Body.String() != "video" {
 		t.Fatalf("proxy status=%d range=%s body=%s", response.Code, response.Header().Get("Content-Range"), response.Body.String())
+	}
+	cookie := response.Result().Cookies()
+	if len(cookie) != 1 || cookie[0].Name != "canvas_video_playback" || !cookie[0].HttpOnly || !cookie[0].Secure || cookie[0].SameSite != http.SameSiteStrictMode {
+		t.Fatalf("unexpected playback cookie: %#v", cookie)
+	}
+
+	playbackRequest := httptest.NewRequest(http.MethodGet, "/api/video-content-proxy/task_abc123", nil)
+	playbackRequest.AddCookie(cookie[0])
+	playbackResponse := httptest.NewRecorder()
+	server.proxyVideoContent(playbackResponse, playbackRequest)
+	if playbackResponse.Code != http.StatusPartialContent || playbackResponse.Body.String() != "video" || upstreamRequests != 2 {
+		t.Fatalf("playback proxy status=%d body=%s requests=%d", playbackResponse.Code, playbackResponse.Body.String(), upstreamRequests)
 	}
 }
 

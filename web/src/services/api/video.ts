@@ -7,9 +7,11 @@ import { imageToDataUrl } from "@/services/image-storage";
 import { isCanvasVideoAssetUrl, uploadVideoReferenceAsset } from "@/services/video-reference-assets";
 import { canvasAuthenticatedVideoResultUrl, canvasVideoResultUrl } from "@/services/video-result-proxy";
 import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
-import { resolveUniArtReferenceLimits, resolveUniArtVideoParams, uniArtVideoSubmissionError, type UniArtVideoCapability } from "@/lib/uniart-video";
+import { resolveUniArtReferenceLimits, resolveUniArtVideoParams, uniArtVideoParamsError, uniArtVideoSubmissionError, type UniArtVideoCapability } from "@/lib/uniart-video";
 import { buildApiUrl, decodeChannelModel, encodeChannelModel, isChannelModelValue, modelCapabilityOf, modelOptionName, normalizeModelOptionValue, resolveModelRequestConfig, resolveModelScript, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
+import { buildMiniMaxH3Content, minimaxH3Adapter } from "./video-adapters/minimax-h3";
+import { seedanceAdapter } from "./video-adapters/seedance";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
@@ -189,8 +191,13 @@ export async function storeGeneratedVideo(result: VideoGenerationResult, config?
                 throw new Error(`视频已生成，但下载到本地失败：${readAxiosError(error, "视频下载失败")}`);
             }
             try {
-                return await uploadMediaFile(content, "video");
-            } catch {
+                return await withTimeout(uploadMediaFile(content, "video"), 10000, "视频本地缓存超时");
+            } catch (error) {
+                if (axios.isCancel(error) || options?.signal?.aborted) throw error;
+                // The provider result is already complete and the same-origin
+                // proxy session is valid. Do not leave the canvas in loading
+                // forever when IndexedDB is blocked or slow; the video can
+                // still play from the authenticated proxy URL.
                 return { url: downloadUrl, storageKey: "", bytes: content.size, mimeType: content.type || result.mimeType || "video/mp4" };
             }
         }
@@ -229,17 +236,22 @@ function authenticatedVideoDownloadUrl(config: AiConfig, resultUrl: string) {
 }
 
 async function downloadAuthenticatedVideo(url: string, config: AiConfig, options?: RequestOptions) {
-    const deadline = Date.now() + 120000;
+    const deadline = Date.now() + 300000;
     let retryDelayMs = 1000;
     while (true) {
         try {
             return await axios.get<Blob>(url, { headers: aiHeaders(config), responseType: "blob", signal: options?.signal, timeout: 120000 });
         } catch (error) {
-            if (axios.isCancel(error) || options?.signal?.aborted || !axios.isAxiosError(error) || error.response?.status !== 503 || Date.now() + retryDelayMs > deadline) throw error;
+            const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+            if (axios.isCancel(error) || options?.signal?.aborted || !isRetryableVideoContentStatus(status) || Date.now() + retryDelayMs > deadline) throw error;
             await delay(retryDelayMs, options?.signal);
             retryDelayMs = Math.min(10000, retryDelayMs * 2);
         }
     }
+}
+
+export function isRetryableVideoContentStatus(status?: number) {
+    return status === 502 || status === 503 || status === 504;
 }
 
 async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
@@ -247,9 +259,11 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
     const capability = videoCapabilityOf(config, model);
     if (capability) {
         const limits = resolveUniArtReferenceLimits(capability, config.videoReferenceMode);
-        const submissionError = uniArtVideoSubmissionError(limits.mode, prompt, { images: references.length, videos: videoReferences.length, audios: audioReferences.length });
+        const submissionError = uniArtVideoSubmissionError(limits.mode, prompt, { images: references.length, videos: videoReferences.length, audios: audioReferences.length }, limits);
         if (submissionError) throw new Error(submissionError);
         const uniArtParams = resolveUniArtVideoParams(capability, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality });
+        const paramsError = uniArtVideoParamsError(uniArtParams);
+        if (paramsError) throw new Error(paramsError);
         try {
             const body = await buildUniArtOfficialVideoRequest(config, requestModel, prompt, uniArtParams.capability, uniArtParams.seconds, uniArtParams.ratio, uniArtParams.resolution, references, videoReferences, audioReferences, options);
             const created = unwrapVideoResponse(
@@ -297,16 +311,16 @@ async function buildUniArtOfficialVideoRequest(
 ) {
     const limits = resolveUniArtReferenceLimits(capability, config.videoReferenceMode);
     const mode = limits.mode;
-    const faceMode = boolConfig(config.videoFaceMode, false);
-    const generateAudio = boolConfig(config.videoGenerateAudio, true);
+    const faceMode = capability.supportsFaceMode === true && boolConfig(config.videoFaceMode, false);
+    const generateAudio = typeof capability.supportsGenerateAudio === "boolean" ? boolConfig(config.videoGenerateAudio, capability.supportsGenerateAudio) : undefined;
     if (mode === "text_to_video") {
         if (faceMode) throw new Error("人脸模式需要至少一张参考图片");
-        return buildUniArtOfficialVideoRequestBody(model, prompt, duration, ratio, resolution, mode, [], [], [], generateAudio, faceMode);
+        return buildUniArtOfficialVideoRequestBody(model, prompt, duration, ratio, resolution, mode, [], [], [], generateAudio, faceMode, undefined);
     }
     const hasReferences = references.length + videoReferences.length + audioReferences.length > 0;
     if (!hasReferences) {
         if (faceMode) throw new Error("人脸模式需要至少一张参考图片");
-        return buildUniArtOfficialVideoRequestBody(model, prompt, duration, ratio, resolution, mode, [], [], [], generateAudio, faceMode);
+        return buildUniArtOfficialVideoRequestBody(model, prompt, duration, ratio, resolution, mode, [], [], [], generateAudio, faceMode, undefined);
     }
     if (faceMode && !references.length) throw new Error("人脸模式需要至少一张参考图片");
     if (references.length > limits.maxImages) throw new Error("参考图片超过画布单次上传安全上限");
@@ -324,7 +338,8 @@ async function buildUniArtOfficialVideoRequest(
         Promise.all(audioReferences.map((audio) => resolveReferenceMediaUrl(audio, options))),
     ]);
 
-    return buildUniArtOfficialVideoRequestBody(model, prompt, duration, ratio, resolution, mode, imageURLs, videoURLs, audioURLs, generateAudio, faceMode);
+    const upscaleStyle = config.upscaleStyle === "anime" && capability.upscaleStyles?.includes("anime") && resolution?.toLowerCase() === "2k" && mode === "image_reference" && references.length > 1 ? "anime" : undefined;
+    return buildUniArtOfficialVideoRequestBody(model, prompt, duration, ratio, resolution, mode, imageURLs, videoURLs, audioURLs, generateAudio, faceMode, upscaleStyle);
 }
 
 function buildUniArtOfficialVideoRequestBody(
@@ -337,19 +352,11 @@ function buildUniArtOfficialVideoRequestBody(
     imageURLs: string[],
     videoURLs: string[],
     audioURLs: string[],
-    generateAudio: boolean,
+    generateAudio: boolean | undefined,
     faceMode: boolean,
+    upscaleStyle?: "realistic" | "anime",
 ) {
-    return {
-        model,
-        content: buildUniArtOfficialContent(prompt, mode, imageURLs, videoURLs, audioURLs),
-        duration,
-        ...(resolution ? { resolution } : {}),
-        ratio,
-        generate_audio: generateAudio,
-        return_last_frame: false,
-        ...(faceMode ? { face_mode: true } : {}),
-    };
+    return minimaxH3Adapter.buildRequest({ model, prompt, mode, duration, ratio, resolution, imageURLs, videoURLs, audioURLs, generateAudio, watermark: false, faceMode, upscaleStyle });
 }
 
 export function buildUniArtOfficialContent(
@@ -359,21 +366,7 @@ export function buildUniArtOfficialContent(
     videoURLs: string[],
     audioURLs: string[],
 ): UniArtOfficialContentPart[] {
-    const content: UniArtOfficialContentPart[] = [];
-    if (prompt.trim()) content.push({ type: "text", text: prompt.trim() });
-    if (mode === "first_last_frames") {
-        if (imageURLs[0]) content.push({ type: "image_url", image_url: { url: imageURLs[0] }, role: "first_frame" });
-        if (imageURLs[1]) content.push({ type: "image_url", image_url: { url: imageURLs[1] }, role: "last_frame" });
-        return content;
-    }
-    if (mode === "image_to_video") {
-        if (imageURLs[0]) content.push({ type: "image_url", image_url: { url: imageURLs[0] }, role: "first_frame" });
-        return content;
-    }
-    imageURLs.forEach((url) => content.push({ type: "image_url", image_url: { url }, role: "reference_image" }));
-    videoURLs.forEach((url) => content.push({ type: "video_url", video_url: { url }, role: "reference_video" }));
-    audioURLs.forEach((url) => content.push({ type: "audio_url", audio_url: { url }, role: "reference_audio" }));
-    return content;
+    return buildMiniMaxH3Content(prompt, mode, imageURLs, videoURLs, audioURLs);
 }
 
 async function resolveReferenceImageUrl(reference: ReferenceImage, options?: RequestOptions) {
@@ -419,7 +412,10 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
         if (video.status === "completed") {
             return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, task.channelId, aiApiUrl(config, `/videos/${task.id}/content`), true, "video/mp4") };
         }
-        return { status: "pending" };
+        // The provider-facing status can lag behind the durable task record.  A
+        // completed persisted result is authoritative once it has a result URL,
+        // even when /videos/:id still reports a queued/running state.
+        return (await pollStoredVideoTask(config, task, options)) || { status: "pending" };
     } catch (error) {
         const status = axios.isAxiosError(error) ? error.response?.status : undefined;
         if (shouldReconcileStoredVideoTaskQuery(status, axios.isCancel(error), options?.signal?.aborted)) {
@@ -505,22 +501,45 @@ function isAuthenticatedVideoContentUrl(config: AiConfig, resultUrl: string) {
 }
 
 async function createSeedanceTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {
+    const capability = videoCapabilityOf(config, model);
+    const mode = capability ? resolveUniArtReferenceLimits(capability, config.videoReferenceMode).mode : undefined;
+    const uniArtParams = capability ? resolveUniArtVideoParams(capability, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality }) : null;
+    const paramsError = uniArtParams ? uniArtVideoParamsError(uniArtParams) : null;
+    if (paramsError) throw new Error(paramsError);
+    if (mode) {
+        const limits = resolveUniArtReferenceLimits(capability!, config.videoReferenceMode);
+        const submissionError = uniArtVideoSubmissionError(mode, prompt, {
+            images: references.length,
+            videos: videoReferences.length,
+            audios: audioReferences.length,
+        }, limits);
+        if (submissionError) throw new Error(submissionError);
+    }
     if (audioReferences.length && !references.length && !videoReferences.length) {
         throw new Error("Seedance 参考音频不能单独使用，请同时添加参考图或参考视频");
     }
     assertSeedanceVideoReferences(videoReferences);
     assertSeedanceAudioReferences(audioReferences);
-    const content = await buildSeedanceContent(config, prompt, references, videoReferences, audioReferences);
-    if (!content.length) throw new Error("请输入视频提示词，或连接参考图片/视频/音频");
-    const payload = {
+    const [imageURLs, videoURLs, audioURLs] = await Promise.all([
+        Promise.all(references.slice(0, SEEDANCE_REFERENCE_LIMITS.images).map((image) => resolveSeedanceImageUrl(image, options))),
+        Promise.all(videoReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.videos).map((video) => resolveSeedanceVideoUrl(video, options))),
+        Promise.all(audioReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.audios).map((audio) => resolveSeedanceAudioUrl(audio, options))),
+    ]);
+    const payload = seedanceAdapter.buildRequest({
         model: modelOptionName(model),
-        content,
-        ratio: normalizeSeedanceRatio(config.size),
-        resolution: normalizeSeedanceResolution(config.vquality),
-        duration: normalizeSeedanceDuration(config.videoSeconds),
-        generate_audio: boolConfig(config.videoGenerateAudio, true),
+        prompt: buildSeedancePromptText(prompt, references, videoReferences, audioReferences),
+        mode,
+        imageURLs,
+        videoURLs,
+        audioURLs,
+        ratio: uniArtParams?.ratio || normalizeSeedanceRatio(config.size),
+        resolution: uniArtParams?.resolution || normalizeSeedanceResolution(config.vquality),
+        duration: uniArtParams?.seconds || normalizeSeedanceDuration(config.videoSeconds),
+        generateAudio: capability?.supportsGenerateAudio === true ? boolConfig(config.videoGenerateAudio, true) : capability ? undefined : boolConfig(config.videoGenerateAudio, true),
         watermark: boolConfig(config.videoWatermark, false),
-    };
+        faceMode: false,
+    });
+    if (!(payload.content as unknown[]).length) throw new Error("请输入视频提示词，或连接参考图片/视频/音频");
 
     try {
         const created = unwrapSeedanceTask((await axios.post<ApiEnvelope<SeedanceTask>>(seedanceApiUrl(config), payload, { headers: aiHeaders(config, "application/json"), signal: options?.signal })).data);
@@ -570,46 +589,31 @@ function seedanceApiUrl(config: AiConfig, taskId?: string) {
     return buildApiUrl(config.baseUrl, `/contents/generations/tasks${taskId ? `/${encodeURIComponent(taskId)}` : ""}`);
 }
 
-async function buildSeedanceContent(config: AiConfig, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[]) {
-    const content: Array<Record<string, unknown>> = [];
-    const text = buildSeedancePromptText(prompt, references, videoReferences, audioReferences);
-    if (text) content.push({ type: "text", text });
-    for (const image of references.slice(0, SEEDANCE_REFERENCE_LIMITS.images)) {
-        content.push({ type: "image_url", image_url: { url: await resolveSeedanceImageUrl(config, image) }, role: "reference_image" });
-    }
-    for (const video of videoReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.videos)) {
-        content.push({ type: "video_url", video_url: { url: await resolveSeedanceVideoUrl(video) }, role: "reference_video" });
-    }
-    for (const audio of audioReferences.slice(0, SEEDANCE_REFERENCE_LIMITS.audios)) {
-        content.push({ type: "audio_url", audio_url: { url: await resolveSeedanceAudioUrl(audio) }, role: "reference_audio" });
-    }
-    return content;
-}
-
-async function resolveSeedanceImageUrl(config: AiConfig, image: ReferenceImage) {
+async function resolveSeedanceImageUrl(image: ReferenceImage, options?: RequestOptions) {
     const directUrl = image.url || image.dataUrl;
     if (isPublicMediaUrl(directUrl) || directUrl.startsWith("asset://")) return directUrl;
     const dataUrl = await imageToDataUrl(image);
     if (!dataUrl) throw new Error("参考图读取失败，请换一张图片或重新上传");
-    return dataUrl;
+    const file = dataUrlToFile({ ...image, dataUrl });
+    return (await uploadVideoReferenceAsset(file, undefined, options?.signal)).url;
 }
 
-async function resolveSeedanceVideoUrl(video: ReferenceVideo) {
+async function resolveSeedanceVideoUrl(video: ReferenceVideo, options?: RequestOptions) {
     if (isPublicMediaUrl(video.url) || video.url.startsWith("asset://")) return video.url;
     let blob: Blob | null = null;
     if (video.storageKey) blob = await getMediaBlob(video.storageKey);
     if (!blob && video.url?.startsWith("blob:")) blob = await (await fetch(video.url)).blob();
     if (!blob) throw new Error("参考视频必须是公网 URL、资产 ID，或本地已保存的视频");
-    return blobToDataUrl(blob);
+    return (await uploadVideoReferenceAsset(blob, video.name, options?.signal)).url;
 }
 
-async function resolveSeedanceAudioUrl(audio: ReferenceAudio) {
+async function resolveSeedanceAudioUrl(audio: ReferenceAudio, options?: RequestOptions) {
     if (isPublicMediaUrl(audio.url) || audio.url.startsWith("asset://")) return audio.url;
     let blob: Blob | null = null;
     if (audio.storageKey) blob = await getMediaBlob(audio.storageKey);
     if (!blob && audio.url?.startsWith("blob:")) blob = await (await fetch(audio.url)).blob();
     if (!blob) throw new Error("参考音频必须是公网 URL、资产 ID，或本地已保存的音频");
-    return blobToDataUrl(blob);
+    return (await uploadVideoReferenceAsset(blob, audio.name, options?.signal)).url;
 }
 
 async function videoResultFromUrl(url: string, options?: RequestOptions): Promise<VideoGenerationResult> {
@@ -781,14 +785,5 @@ function delay(ms: number, signal?: AbortSignal) {
             },
             { once: true },
         );
-    });
-}
-
-function blobToDataUrl(blob: Blob) {
-    return new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(String(reader.result || ""));
-        reader.onerror = () => reject(new Error("读取本地资产失败"));
-        reader.readAsDataURL(blob);
     });
 }

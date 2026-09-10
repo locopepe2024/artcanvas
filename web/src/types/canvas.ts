@@ -1,4 +1,5 @@
 import type { CanvasVideoResult, CanvasVideoTask } from "@/lib/canvas/canvas-video-task";
+import type { CanvasImageTask } from "@/lib/canvas/canvas-image-task";
 
 export type Position = {
     x: number;
@@ -36,6 +37,7 @@ export type CanvasNodeMetadata = {
     fontSize?: number;
     generationMode?: CanvasGenerationMode;
     generationType?: CanvasImageGenerationType;
+    imageTask?: CanvasImageTask;
     model?: string;
     reasoningEffort?: "auto" | "low" | "medium" | "high" | "xhigh";
     size?: string;
@@ -48,6 +50,7 @@ export type CanvasNodeMetadata = {
     watermark?: string;
     videoReferenceMode?: "text_to_video" | "image_to_video" | "image_reference" | "first_last_frames" | "omni_reference";
     faceMode?: string;
+    upscaleStyle?: "realistic" | "anime";
     videoTask?: CanvasVideoTask;
     videoResult?: CanvasVideoResult;
     audioVoice?: string;

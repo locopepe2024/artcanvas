@@ -10,7 +10,7 @@ import { CanvasImageSettingsPopover } from "./canvas-image-settings-popover";
 import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas-audio-settings-popover";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
-import { resolveUniArtReferenceLimits, uniArtVideoSubmissionError } from "@/lib/uniart-video";
+import { resolveUniArtReferenceLimits, resolveUniArtVideoParams, uniArtVideoParamsError, uniArtVideoSubmissionError } from "@/lib/uniart-video";
 import type { CanvasGenerationMode, CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
 
 type CanvasConfigNodePanelProps = {
@@ -32,13 +32,15 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
     const chipStyle = { background: theme.node.fill, borderColor: theme.node.stroke, color: theme.node.text };
     const hasComposerContent = Boolean((node.metadata?.composerContent ?? node.metadata?.prompt ?? "").trim());
     const videoCapability = mode === "video" ? videoCapabilityOf(config, config.model) : undefined;
+    const videoLimits = videoCapability ? resolveUniArtReferenceLimits(videoCapability, config.videoReferenceMode) : null;
+    const videoParamsError = videoCapability ? uniArtVideoParamsError(resolveUniArtVideoParams(videoCapability, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality })) : null;
     const videoSubmissionError =
-        videoCapability &&
-        uniArtVideoSubmissionError(resolveUniArtReferenceLimits(videoCapability, config.videoReferenceMode).mode, hasComposerContent || inputSummary.textCount ? "connected text" : "", {
+        videoLimits &&
+        (videoParamsError || uniArtVideoSubmissionError(videoLimits.mode, hasComposerContent || inputSummary.textCount ? "connected text" : "", {
             images: inputSummary.imageCount,
             videos: inputSummary.videoCount,
             audios: inputSummary.audioCount,
-        });
+        }, videoLimits));
     const canGenerate =
         mode === "video"
             ? videoCapability

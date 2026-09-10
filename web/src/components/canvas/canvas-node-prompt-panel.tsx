@@ -12,7 +12,7 @@ import { CanvasAudioSettingsPopover, type CanvasAudioSettingKey } from "./canvas
 import { CanvasPromptChipInput } from "./canvas-prompt-chip-input";
 import { CanvasVideoSettingsPopover } from "./canvas-video-settings-popover";
 import { CanvasTextSettingsPopover } from "./canvas-text-settings-popover";
-import { resolveUniArtReferenceLimits, uniArtVideoSubmissionError } from "@/lib/uniart-video";
+import { isMiniMaxH3Model, resolveUniArtReferenceLimits, resolveUniArtVideoParams, uniArtVideoParamsError, uniArtVideoSubmissionError } from "@/lib/uniart-video";
 import { CanvasNodeType, type CanvasGenerationMode, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { optimizeMiniMaxH3Prompt } from "@/services/api/context-ir";
@@ -45,18 +45,20 @@ export function CanvasNodePromptPanel({ node, isRunning, onPromptChange, onConfi
     const activeReferences = mentionReferences.filter((reference) => reference.active);
     const referencePrompt = activeReferences.find((reference) => reference.kind === "text" && reference.text?.trim())?.text || "";
     const videoCapability = mode === "video" ? videoCapabilityOf(config, config.model) : undefined;
+    const videoLimits = videoCapability ? resolveUniArtReferenceLimits(videoCapability, config.videoReferenceMode) : null;
+    const videoParamsError = videoCapability ? uniArtVideoParamsError(resolveUniArtVideoParams(videoCapability, { seconds: config.videoSeconds, ratio: config.size, resolution: config.vquality })) : null;
     const submissionError =
-        mode === "video" && videoCapability
-            ? uniArtVideoSubmissionError(resolveUniArtReferenceLimits(videoCapability, config.videoReferenceMode).mode, prompt.trim() || referencePrompt, {
+        mode === "video" && videoLimits
+            ? videoParamsError || uniArtVideoSubmissionError(videoLimits.mode, prompt.trim() || referencePrompt, {
                   images: activeReferences.filter((reference) => reference.kind === "image").length,
                   videos: activeReferences.filter((reference) => reference.kind === "video").length,
                   audios: activeReferences.filter((reference) => reference.kind === "audio").length,
-              })
+              }, videoLimits)
             : prompt.trim()
               ? null
               : "请输入提示词";
     const canSubmit = !submissionError;
-    const isH3Video = mode === "video" && /minimax[-_ ]?h3/i.test(config.model || "");
+    const isH3Video = mode === "video" && isMiniMaxH3Model(config.model || "");
     const promptMediaReferences = (optimizationReferences.length ? optimizationReferences : activeReferences).filter((reference) => ["image", "video", "audio"].includes(reference.kind) && reference.previewUrl);
     const [isOptimizingPrompt, setIsOptimizingPrompt] = useState(false);
 

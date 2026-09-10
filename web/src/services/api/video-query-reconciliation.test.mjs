@@ -1,8 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
-import { normalizeVideoSafetyFailureMessage, readApiErrorMessage, readProviderFailureMessage, readReportedOpenAIVideoFailure, reconcileReportedVideoFailure, shouldReconcileStoredVideoTaskQuery, videoTaskIdFromResultUrl } from "./video.ts";
+import { isRetryableVideoContentStatus, normalizeVideoSafetyFailureMessage, readApiErrorMessage, readProviderFailureMessage, readReportedOpenAIVideoFailure, reconcileReportedVideoFailure, shouldReconcileStoredVideoTaskQuery, videoTaskIdFromResultUrl } from "./video.ts";
 
 describe("video task query reconciliation", () => {
+    test("retries transient protected video content responses", () => {
+        expect(isRetryableVideoContentStatus(502)).toBe(true);
+        expect(isRetryableVideoContentStatus(503)).toBe(true);
+        expect(isRetryableVideoContentStatus(504)).toBe(true);
+        expect(isRetryableVideoContentStatus(500)).toBe(false);
+    });
     test("reconciles queued-task 400s and transient provider query failures", () => {
         expect(shouldReconcileStoredVideoTaskQuery(400)).toBe(true);
         expect(shouldReconcileStoredVideoTaskQuery(404)).toBe(true);

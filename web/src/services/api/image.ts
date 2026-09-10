@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { dataUrlToFile } from "@/lib/image-utils";
 import { buildImageReferencePromptText } from "@/lib/image-reference-prompt";
 import { imageToDataUrl } from "@/services/image-storage";
+import { isCanvasVideoAssetUrl, uploadVideoReferenceAsset } from "@/services/video-reference-assets";
 import type { ReferenceImage } from "@/types/image";
 
 export type AiTextMessage = {
@@ -95,7 +96,7 @@ type GeminiPayload = {
     promptFeedback?: { blockReason?: string };
 };
 type GeminiStreamState = { buffer: string; text: string; toolCalls: ResponseToolCall[]; error?: string };
-type RequestOptions = { signal?: AbortSignal };
+type RequestOptions = { signal?: AbortSignal; onTaskCreated?: (taskId: string) => void };
 
 const QUALITY_BASE: Record<string, number> = {
     low: 1024,
@@ -315,6 +316,7 @@ async function parseImagePayload(payload: ImageApiResponse, config: AiConfig, op
 async function resolveTerminalImagePayload(payload: ImageApiResponse, config: AiConfig, options?: RequestOptions) {
     const taskId = typeof payload.task_id === "string" ? payload.task_id.trim() : "";
     if (!taskId) return payload;
+    options?.onTaskCreated?.(taskId);
     let current = payload;
     for (let attempt = 0; attempt < 120; attempt += 1) {
         const status = String(current.status || "").trim().toLowerCase();
@@ -330,6 +332,15 @@ async function resolveTerminalImagePayload(payload: ImageApiResponse, config: Ai
         current = response.data;
     }
     throw new Error("图片生成等待超时，请稍后重新查询任务");
+}
+
+export async function resumeImageTask(config: AiConfig, taskId: string, options?: RequestOptions) {
+    const requestConfig = resolveModelRequestConfig(config, config.model || config.imageModel);
+    const response = await axios.get<ImageApiResponse>(aiApiUrl(requestConfig, `/images/${encodeURIComponent(taskId)}`), {
+        headers: aiHeaders(requestConfig),
+        signal: options?.signal,
+    });
+    return parseImagePayload({ ...response.data, task_id: response.data.task_id || taskId }, requestConfig, options);
 }
 
 function isProtectedUniArtImageUrl(value: string, baseUrl: string) {
@@ -942,6 +953,32 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     const quality = semanticOutput ? undefined : normalizeQuality(config.quality);
     const requestSize = semanticOutput ? undefined : resolveRequestSize(quality, config.size);
     const background = normalizeBackground(config.background);
+    if (isUniArtApiUrl(requestConfig.baseUrl)) {
+        try {
+            const images = await Promise.all(references.map((image) => resolveUniArtImageReferenceUrl(image, options)));
+            const maskUrl = mask ? await resolveUniArtImageReferenceUrl(mask, options) : undefined;
+            const response = await axios.post<ImageApiResponse>(
+                aiApiUrl(requestConfig, "/images/edits"),
+                {
+                    model: requestConfig.model,
+                    prompt: withSystemPrompt(requestConfig, requestPrompt),
+                    n,
+                    images,
+                    ...(maskUrl ? { mask: maskUrl } : {}),
+                    response_format: "b64_json",
+                    output_format: IMAGE_OUTPUT_FORMAT,
+                    ...(quality ? { quality } : {}),
+                    ...(requestSize ? { size: requestSize } : {}),
+                    ...(semanticOutput || {}),
+                    ...(background ? { background } : {}),
+                },
+                { headers: aiHeaders(requestConfig, "application/json"), signal: options?.signal },
+            );
+            return await parseImagePayload(response.data, requestConfig, options);
+        } catch (error) {
+            throw new Error(readAxiosError(error, "请求失败"));
+        }
+    }
     const formData = new FormData();
     formData.set("model", requestConfig.model);
     formData.set("prompt", withSystemPrompt(requestConfig, requestPrompt));
@@ -972,6 +1009,13 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
     }
+}
+
+async function resolveUniArtImageReferenceUrl(reference: ReferenceImage, options?: RequestOptions) {
+    const directUrl = reference.dataUrl || reference.url || "";
+    if (isCanvasVideoAssetUrl(directUrl)) return directUrl;
+    const file = dataUrlToFile({ ...reference, dataUrl: await imageToDataUrl(reference) });
+    return (await uploadVideoReferenceAsset(file, undefined, options?.signal)).url;
 }
 
 export async function requestImageQuestion(config: AiConfig, messages: AiTextMessage[], onDelta: (text: string) => void, options?: RequestOptions) {
@@ -1041,7 +1085,15 @@ type ApiModel = {
         modes?: Array<{ id?: string; input_types?: string[] }>;
         resolutions?: string[];
         ratios?: string[];
+        ratios_by_resolution?: Record<string, string[]>;
         durations?: number[];
+        max_reference_images?: number;
+        max_reference_videos?: number;
+        max_reference_audios?: number;
+        max_reference_audio?: number;
+        supports_generate_audio?: boolean;
+        supports_face_mode?: boolean;
+        upscale_styles?: string[];
         default_resolution?: string;
         default_ratio?: string;
         default_duration?: number;
@@ -1057,7 +1109,14 @@ function channelModelFromApiModel(model: ApiModel): ChannelModel | null {
         modes: (model.video_capability?.modes || []).map((mode) => ({ id: mode.id as VideoCapabilityModeId, inputTypes: (mode.input_types || []) as VideoCapability["modes"][number]["inputTypes"] })),
         resolutions: model.video_capability?.resolutions,
         ratios: model.video_capability?.ratios,
+        ratiosByResolution: model.video_capability?.ratios_by_resolution,
         durations: model.video_capability?.durations,
+        maxReferenceImages: model.video_capability?.max_reference_images,
+        maxReferenceVideos: model.video_capability?.max_reference_videos,
+        maxReferenceAudios: model.video_capability?.max_reference_audios ?? model.video_capability?.max_reference_audio,
+        supportsGenerateAudio: model.video_capability?.supports_generate_audio,
+        supportsFaceMode: model.video_capability?.supports_face_mode,
+        upscaleStyles: model.video_capability?.upscale_styles,
         defaultResolution: model.video_capability?.default_resolution,
         defaultRatio: model.video_capability?.default_ratio,
         defaultDuration: model.video_capability?.default_duration,

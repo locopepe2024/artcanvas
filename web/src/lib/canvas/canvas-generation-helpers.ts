@@ -7,6 +7,7 @@ import type { NodeGenerationInput } from "@/components/canvas/canvas-node-genera
 import type { CanvasNodeGenerationMode } from "@/components/canvas/canvas-node-prompt-panel";
 import type { CanvasImageAngleParams } from "@/components/canvas/canvas-node-angle-dialog";
 import type { ReferenceImage } from "@/types/image";
+import { recoverableCanvasImageTask } from "@/lib/canvas/canvas-image-task";
 import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, type CanvasNodeData, type CanvasNodeMetadata } from "@/types/canvas";
 
 export function imageExtension(dataUrl: string) {
@@ -112,11 +113,13 @@ export function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | u
 }
 
 export function resetInterruptedGeneration(nodes: CanvasNodeData[]) {
-    return nodes.map((node) =>
-        node.metadata?.status !== "loading" || (node.type === CanvasNodeType.Video && (recoverableCanvasVideoResult(node.metadata.videoResult) || recoverableCanvasVideoTask(node.metadata.videoTask)))
-            ? node
-            : { ...node, metadata: { ...node.metadata, status: "error" as const, errorDetails: "页面刷新后生成已中断，请重新生成。" } },
-    );
+    return nodes.map((node) => {
+        if (node.metadata?.status !== "loading") return node;
+        if (node.type === CanvasNodeType.Config) return { ...node, metadata: { ...node.metadata, status: "idle" as const, errorDetails: undefined } };
+        if (node.type === CanvasNodeType.Image && recoverableCanvasImageTask(node.metadata.imageTask)) return node;
+        if (node.type === CanvasNodeType.Video && (recoverableCanvasVideoResult(node.metadata.videoResult) || recoverableCanvasVideoTask(node.metadata.videoTask))) return node;
+        return { ...node, metadata: { ...node.metadata, status: "error" as const, errorDetails: "页面刷新后生成已中断，请重新生成。" } };
+    });
 }
 
 export function isGenerationCanceled(error: unknown) {

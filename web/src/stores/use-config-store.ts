@@ -12,7 +12,14 @@ export type VideoCapability = {
     modes: Array<{ id: VideoCapabilityModeId; inputTypes: Array<"text" | "image" | "video" | "audio"> }>;
     resolutions?: string[];
     ratios?: string[];
+    ratiosByResolution?: Record<string, string[]>;
     durations?: number[];
+    maxReferenceImages?: number;
+    maxReferenceVideos?: number;
+    maxReferenceAudios?: number;
+    supportsGenerateAudio?: boolean;
+    supportsFaceMode?: boolean;
+    upscaleStyles?: string[];
     defaultResolution?: string;
     defaultRatio?: string;
     defaultDuration?: number;
@@ -55,6 +62,7 @@ export type AiConfig = {
     videoWatermark: string;
     videoReferenceMode: VideoReferenceMode;
     videoFaceMode?: string;
+    upscaleStyle: "realistic" | "anime";
     systemPrompt: string;
     reasoningEffort: ReasoningEffort;
     models: string[];
@@ -115,6 +123,7 @@ export const defaultConfig: AiConfig = {
     videoWatermark: "false",
     videoReferenceMode: "image_reference",
     videoFaceMode: "false",
+    upscaleStyle: "realistic",
     systemPrompt: "",
     reasoningEffort: "auto",
     models: ["default::gpt-image-2", "default::grok-imagine-video", "default::gpt-5.5", "default::gpt-4o-mini-tts"],
@@ -266,6 +275,7 @@ export const useConfigStore = create<ConfigStore>()(
                         videoWatermark: config.videoWatermark || "false",
                         videoReferenceMode: config.videoReferenceMode || "image_reference",
                         videoFaceMode: config.videoFaceMode || "false",
+                        upscaleStyle: config.upscaleStyle === "anime" ? "anime" : "realistic",
                         canvasImageCount: config.canvasImageCount || "3",
                     },
                 };
@@ -305,6 +315,9 @@ export function normalizeVideoCapability(value: VideoCapability | undefined): Vi
     const resolutions = normalizeCapabilityStrings(value?.resolutions, true);
     const ratios = normalizeCapabilityStrings(value?.ratios);
     const durations = Array.from(new Set((Array.isArray(value?.durations) ? value.durations : []).map(Number).filter((item) => Number.isInteger(item) && item > 0))).sort((left, right) => left - right);
+    const maxReferenceImages = normalizeNonNegativeInteger(value?.maxReferenceImages);
+    const maxReferenceVideos = normalizeNonNegativeInteger(value?.maxReferenceVideos);
+    const maxReferenceAudios = normalizeNonNegativeInteger(value?.maxReferenceAudios);
     const defaultResolution = resolutions.find((item) => item === value?.defaultResolution?.trim().toLowerCase());
     const defaultRatio = ratios.find((item) => item === value?.defaultRatio?.trim());
     const defaultDuration = durations.includes(Number(value?.defaultDuration)) ? Number(value?.defaultDuration) : undefined;
@@ -312,7 +325,14 @@ export function normalizeVideoCapability(value: VideoCapability | undefined): Vi
         modes,
         ...(resolutions.length ? { resolutions } : {}),
         ...(ratios.length ? { ratios } : {}),
+        ...(value?.ratiosByResolution ? { ratiosByResolution: Object.fromEntries(Object.entries(value.ratiosByResolution).map(([key, values]) => [key.toLowerCase(), normalizeCapabilityStrings(values)]).filter(([, values]) => values.length)) } : {}),
         ...(durations.length ? { durations } : {}),
+        ...(maxReferenceImages !== undefined ? { maxReferenceImages } : {}),
+        ...(maxReferenceVideos !== undefined ? { maxReferenceVideos } : {}),
+        ...(maxReferenceAudios !== undefined ? { maxReferenceAudios } : {}),
+        ...(typeof value?.supportsGenerateAudio === "boolean" ? { supportsGenerateAudio: value.supportsGenerateAudio } : {}),
+        ...(typeof value?.supportsFaceMode === "boolean" ? { supportsFaceMode: value.supportsFaceMode } : {}),
+        ...(value?.upscaleStyles?.length ? { upscaleStyles: normalizeCapabilityStrings(value.upscaleStyles) } : {}),
         ...(defaultResolution ? { defaultResolution } : {}),
         ...(defaultRatio ? { defaultRatio } : {}),
         ...(defaultDuration ? { defaultDuration } : {}),
@@ -321,6 +341,11 @@ export function normalizeVideoCapability(value: VideoCapability | undefined): Vi
 
 function normalizeCapabilityStrings(values: string[] | undefined, lowercase = false) {
     return Array.from(new Set((Array.isArray(values) ? values : []).map((item) => String(item || "").trim()).filter(Boolean).map((item) => (lowercase ? item.toLowerCase() : item))));
+}
+
+function normalizeNonNegativeInteger(value: unknown) {
+    const normalized = Number(value);
+    return Number.isInteger(normalized) && normalized >= 0 ? normalized : undefined;
 }
 
 export function createModelChannel(channel?: Partial<ModelChannel>): ModelChannel {

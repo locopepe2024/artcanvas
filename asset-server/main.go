@@ -23,10 +23,11 @@ import (
 )
 
 const (
-	imageMax = int64(30 << 20)
-	audioMax = int64(15 << 20)
-	videoMax = int64(200 << 20)
-	bodyMax  = videoMax + (1 << 20)
+	imageMax                = int64(30 << 20)
+	audioMax                = int64(15 << 20)
+	videoMax                = int64(200 << 20)
+	bodyMax                 = videoMax + (1 << 20)
+	videoPlaybackSessionTTL = 10 * time.Minute
 )
 
 var assetIDPattern = regexp.MustCompile(`^[0-9a-f]{64}\.(jpg|png|webp|gif|mp4|mov|webm|mp3|wav|m4a)$`)
@@ -44,6 +45,12 @@ type rateWindow struct {
 	count   int
 }
 
+type videoPlaybackSession struct {
+	taskID        string
+	authorization string
+	expiresAt     time.Time
+}
+
 type assetServer struct {
 	config              config
 	videoContentBaseURL string
@@ -51,6 +58,7 @@ type assetServer struct {
 	mu                  sync.Mutex
 	storageMu           sync.Mutex
 	windows             map[string]rateWindow
+	videoSessions       map[string]videoPlaybackSession
 }
 
 func main() {
@@ -84,7 +92,7 @@ func main() {
 }
 
 func newAssetServer(value config) *assetServer {
-	return &assetServer{config: value, videoContentBaseURL: "https://uniart.fun", videoContentClient: newVideoContentClient(), windows: map[string]rateWindow{}}
+	return &assetServer{config: value, videoContentBaseURL: "https://uniart.fun", videoContentClient: newVideoContentClient(), windows: map[string]rateWindow{}, videoSessions: map[string]videoPlaybackSession{}}
 }
 
 func (s *assetServer) health(w http.ResponseWriter, _ *http.Request) {
@@ -241,8 +249,8 @@ func (s *assetServer) proxyVideoContent(w http.ResponseWriter, r *http.Request) 
 		http.NotFound(w, r)
 		return
 	}
-	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
-	if !strings.HasPrefix(authorization, "Bearer ") || strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer ")) == "" {
+	authorization, err := s.videoPlaybackAuthorization(w, r, taskID)
+	if err != nil {
 		writeError(w, http.StatusUnauthorized, "authorization is required")
 		return
 	}
@@ -273,6 +281,46 @@ func (s *assetServer) proxyVideoContent(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(response.StatusCode)
 	if r.Method != http.MethodHead {
 		io.Copy(w, response.Body)
+	}
+}
+
+func (s *assetServer) videoPlaybackAuthorization(w http.ResponseWriter, r *http.Request, taskID string) (string, error) {
+	authorization := strings.TrimSpace(r.Header.Get("Authorization"))
+	if strings.HasPrefix(authorization, "Bearer ") && strings.TrimSpace(strings.TrimPrefix(authorization, "Bearer ")) != "" {
+		if !sameOrigin(r) {
+			return "", errors.New("cross-origin authorization is not allowed")
+		}
+		sessionID, err := randomToken()
+		if err != nil {
+			return "", err
+		}
+		expiresAt := time.Now().Add(videoPlaybackSessionTTL)
+		s.mu.Lock()
+		s.cleanupVideoPlaybackSessions(time.Now())
+		s.videoSessions[sessionID] = videoPlaybackSession{taskID: taskID, authorization: authorization, expiresAt: expiresAt}
+		s.mu.Unlock()
+		http.SetCookie(w, &http.Cookie{Name: "canvas_video_playback", Value: sessionID, Path: "/api/video-content-proxy/" + taskID, Expires: expiresAt, MaxAge: int(videoPlaybackSessionTTL.Seconds()), HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
+		return authorization, nil
+	}
+	cookie, err := r.Cookie("canvas_video_playback")
+	if err != nil || cookie.Value == "" {
+		return "", errors.New("playback session is missing")
+	}
+	s.mu.Lock()
+	session, ok := s.videoSessions[cookie.Value]
+	s.cleanupVideoPlaybackSessions(time.Now())
+	s.mu.Unlock()
+	if !ok || session.taskID != taskID || !session.expiresAt.After(time.Now()) {
+		return "", errors.New("playback session is invalid")
+	}
+	return session.authorization, nil
+}
+
+func (s *assetServer) cleanupVideoPlaybackSessions(now time.Time) {
+	for id, session := range s.videoSessions {
+		if !session.expiresAt.After(now) {
+			delete(s.videoSessions, id)
+		}
 	}
 }
 

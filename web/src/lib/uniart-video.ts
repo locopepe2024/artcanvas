@@ -10,30 +10,37 @@ export type UniArtVideoReferenceLimits = {
     maxAudios: number;
 };
 
-// These are browser upload safety ceilings, not provider or model capability
-// limits. UniArt remains authoritative for numeric admission.
-const CLIENT_IMAGE_UPLOAD_CEILING = 20;
-const IMAGE_REFERENCE_UPLOAD_LIMIT = 9;
-const CLIENT_MEDIA_UPLOAD_CEILING = 10;
+/** H3 提示词优化按模型家族开放；生成参数仍只读取 UniArt 发布的能力数据。 */
+export function isMiniMaxH3Model(value: string) {
+    return /(?:^|[^a-z0-9])minimax[-_ ]?h3(?:[^a-z0-9]|$)/i.test(value);
+}
 
 export function resolveUniArtVideoParams(capability: UniArtVideoCapability, values: { seconds?: string; ratio?: string; resolution?: string }) {
     const requestedDuration = Math.floor(Number(values.seconds));
-    const fallbackSeconds = Math.max(4, Math.min(15, Number.isFinite(requestedDuration) ? requestedDuration : 6));
-    const seconds = capability.durations?.includes(requestedDuration) ? requestedDuration : capability.defaultDuration || capability.durations?.[0] || fallbackSeconds;
-    const requestedRatio = normalizeRatio(values.ratio || "") || "16:9";
-    const ratio = capability.ratios?.find((item) => item.toLowerCase() === requestedRatio.toLowerCase()) || capability.defaultRatio || capability.ratios?.[0] || requestedRatio;
-    const requestedResolution = normalizeResolution(values.resolution || "") || "720p";
-    const resolution = capability.resolutions?.find((item) => item.toLowerCase() === requestedResolution.toLowerCase()) || capability.defaultResolution || capability.resolutions?.[0] || requestedResolution;
+    const seconds = capability.durations?.includes(requestedDuration) ? requestedDuration : capability.defaultDuration || 0;
+    const requestedResolution = normalizeResolution(values.resolution || "");
+    const resolution = capability.resolutions?.find((item) => item.toLowerCase() === requestedResolution.toLowerCase()) || capability.defaultResolution || "";
+    const ratiosForResolution = capability.ratiosByResolution ? capability.ratiosByResolution[resolution.toLowerCase()] || [] : capability.ratios || [];
+    const requestedRatio = normalizeRatio(values.ratio || "");
+    const defaultRatio = capability.defaultRatio && ratiosForResolution.some((item) => item.toLowerCase() === capability.defaultRatio?.toLowerCase()) ? capability.defaultRatio : "";
+    const ratio = ratiosForResolution.find((item) => item.toLowerCase() === requestedRatio.toLowerCase()) || defaultRatio;
     return { capability, seconds, ratio, resolution };
+}
+
+export function uniArtVideoParamsError(params: ReturnType<typeof resolveUniArtVideoParams>) {
+    if (!params.seconds) return "UniArt 尚未发布当前模型的时长能力，请刷新模型列表";
+    if (!params.resolution) return "UniArt 尚未发布当前模型的分辨率能力，请刷新模型列表";
+    if (!params.ratio) return "UniArt 尚未发布当前分辨率的比例能力，请刷新模型列表";
+    return null;
 }
 
 export function supportedUniArtReferenceModes(capability: UniArtVideoCapability): UniArtVideoReferenceMode[] {
     const modes: UniArtVideoReferenceMode[] = [];
-    if (capability.modes.some((mode) => mode.id === "text_to_video")) modes.push("text_to_video");
-    if (capability.modes.some((mode) => mode.id === "image_to_video")) modes.push("image_to_video");
-    if (capability.modes.some((mode) => mode.id === "image_reference")) modes.push("image_reference");
-    if (capability.modes.some((mode) => mode.id === "first_last_frame")) modes.push("first_last_frames");
-    if (capability.modes.some((mode) => mode.id === "omni_reference")) modes.push("omni_reference");
+    if (capability.modes.some((mode) => mode.id === "text_to_video" && mode.inputTypes.includes("text"))) modes.push("text_to_video");
+    if (capability.modes.some((mode) => mode.id === "image_to_video" && mode.inputTypes.includes("image"))) modes.push("image_to_video");
+    if (capability.modes.some((mode) => mode.id === "image_reference" && mode.inputTypes.includes("image"))) modes.push("image_reference");
+    if (capability.modes.some((mode) => mode.id === "first_last_frame" && mode.inputTypes.includes("image"))) modes.push("first_last_frames");
+    if (capability.modes.some((mode) => mode.id === "omni_reference" && mode.inputTypes.some((input) => input !== "text"))) modes.push("omni_reference");
     return modes;
 }
 
@@ -51,15 +58,16 @@ export function resolveUniArtReferenceLimits(capability: UniArtVideoCapability, 
     if (!supportedUniArtReferenceModes(capability).length) return { mode: "image_reference", maxImages: 0, maxVideos: 0, maxAudios: 0 };
     const mode = resolveUniArtReferenceMode(capability, requested);
     if (mode === "text_to_video") return { mode, maxImages: 0, maxVideos: 0, maxAudios: 0 };
-    if (mode === "image_to_video") return { mode, maxImages: 1, maxVideos: 0, maxAudios: 0 };
-    if (mode === "first_last_frames") return { mode, maxImages: 2, maxVideos: 0, maxAudios: 0 };
-    if (mode === "image_reference") return { mode, maxImages: IMAGE_REFERENCE_UPLOAD_LIMIT, maxVideos: 0, maxAudios: 0 };
-    const inputs = capability.modes.find((item) => item.id === "omni_reference")?.inputTypes || [];
+    const modeDefinition = capability.modes.find((item) => (mode === "first_last_frames" ? item.id === "first_last_frame" : item.id === mode));
+    if (mode === "image_to_video") return { mode, maxImages: modeDefinition?.inputTypes.includes("image") ? 1 : 0, maxVideos: 0, maxAudios: 0 };
+    if (mode === "first_last_frames") return { mode, maxImages: modeDefinition?.inputTypes.includes("image") ? 2 : 0, maxVideos: 0, maxAudios: 0 };
+    if (mode === "image_reference") return { mode, maxImages: modeDefinition?.inputTypes.includes("image") ? capability.maxReferenceImages || 0 : 0, maxVideos: 0, maxAudios: 0 };
+    const inputs = modeDefinition?.inputTypes || [];
     return {
         mode,
-        maxImages: inputs.includes("image") ? CLIENT_IMAGE_UPLOAD_CEILING : 0,
-        maxVideos: inputs.includes("video") ? CLIENT_MEDIA_UPLOAD_CEILING : 0,
-        maxAudios: inputs.includes("audio") ? CLIENT_MEDIA_UPLOAD_CEILING : 0,
+        maxImages: inputs.includes("image") ? capability.maxReferenceImages || 0 : 0,
+        maxVideos: inputs.includes("video") ? capability.maxReferenceVideos || 0 : 0,
+        maxAudios: inputs.includes("audio") ? capability.maxReferenceAudios || 0 : 0,
     };
 }
 
@@ -67,14 +75,22 @@ export function uniArtVideoSubmissionError(
     mode: UniArtVideoReferenceMode,
     prompt: string,
     counts: { images: number; videos: number; audios: number },
+    limits?: UniArtVideoReferenceLimits,
 ) {
     const { images, videos, audios } = counts;
     const mediaCount = images + videos + audios;
-    if (mode === "text_to_video") return prompt.trim() ? null : "文生视频需要填写提示词";
-    if (mode === "image_to_video" && (images !== 1 || videos || audios)) return "图生视频模式需要且只能使用 1 张图片";
-    if (mode === "image_reference" && (images < 1 || images > IMAGE_REFERENCE_UPLOAD_LIMIT || videos || audios)) return "图片参考模式需要使用 1 至 9 张图片";
-    if (mode === "first_last_frames" && (images !== 2 || videos || audios)) return "首尾帧模式需要且只能使用 2 张图片，第 1 张为首帧，第 2 张为尾帧";
-    if (mode === "omni_reference" && mediaCount < 1) return "全能参考模式至少需要 1 个图片、视频或音频素材";
+    if (mode === "text_to_video") {
+        if (mediaCount) return "文生视频模式不能使用参考素材，请切换到图生视频、参考或首尾帧模式";
+        return prompt.trim() ? null : "文生视频需要填写提示词";
+    }
+    if (mode === "image_to_video" && (!limits?.maxImages || images !== 1 || videos || audios)) return limits?.maxImages ? "图生视频模式需要且只能使用 1 张图片" : "UniArt 尚未发布图生视频图片输入能力，请刷新模型能力";
+    if (mode === "image_reference" && (!limits?.maxImages || images < 1 || images > limits.maxImages || videos || audios)) return limits?.maxImages ? `图片参考模式需要使用 1 至 ${limits.maxImages} 张图片` : "UniArt 尚未发布图片参考数量能力，请刷新模型能力";
+    if (mode === "first_last_frames" && (!limits?.maxImages || images !== 2 || videos || audios)) return limits?.maxImages ? "首尾帧模式需要且只能使用 2 张图片，第 1 张为首帧，第 2 张为尾帧" : "UniArt 尚未发布首尾帧图片输入能力，请刷新模型能力";
+    if (mode === "omni_reference") {
+        if (mediaCount < 1) return "全能参考模式至少需要 1 个图片、视频或音频素材";
+        if (!limits || (!limits.maxImages && !limits.maxVideos && !limits.maxAudios)) return "UniArt 尚未发布全能参考素材能力，请刷新模型列表";
+        if (images > limits.maxImages || videos > limits.maxVideos || audios > limits.maxAudios) return "参考素材数量超过 UniArt 当前模型能力上限";
+    }
     return null;
 }
 
@@ -85,18 +101,16 @@ function normalizeRatio(value: string) {
     if (!match) return normalized;
     const width = Number(match[1]);
     const height = Number(match[2]);
-    const ratio = width / height;
-    if (Math.abs(ratio - 1) < 0.05) return "1:1";
-    if (Math.abs(ratio - 4 / 3) < 0.08) return "4:3";
-    if (Math.abs(ratio - 3 / 4) < 0.08) return "3:4";
-    return width > height ? "16:9" : "9:16";
+    if (width === height) return "1:1";
+    if (width * 4 === height * 3) return "4:3";
+    if (width * 3 === height * 4) return "3:4";
+    if (width * 16 === height * 9) return "16:9";
+    if (width * 9 === height * 16) return "9:16";
+    return normalized;
 }
 
 function normalizeResolution(value: string) {
     const normalized = value.trim().toLowerCase();
-    if (normalized === "high") return "1080p";
-    if (normalized === "medium" || normalized === "auto") return "720p";
-    if (normalized === "low") return "480p";
     if (/^\d+$/.test(normalized)) return `${normalized}p`;
     return normalized;
 }
