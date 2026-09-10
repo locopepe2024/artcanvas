@@ -176,8 +176,7 @@ function videoPluginResult(result: unknown): VideoGenerationResult {
 export async function storeGeneratedVideo(result: VideoGenerationResult, config?: AiConfig, options?: RequestOptions): Promise<UploadedFile> {
     if (result.blob) return uploadMediaFile(result.blob, "video");
     if (result.url) {
-        if (result.requiresAuth) {
-            if (!config) throw new Error("视频已生成，但缺少下载鉴权配置");
+        if (config && shouldUseAuthenticatedVideoDownload(config, result)) {
             const requestConfig = videoDownloadRequestConfig(config, result);
             const downloadUrl = authenticatedVideoDownloadUrl(requestConfig, result.url);
             let content: Blob;
@@ -408,9 +407,9 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask, 
             return reconcileReportedVideoFailure(reportedFailure, storedState, Boolean(videoCapabilityOf(config, task.model)));
         }
         const url = videoResultUrl(video);
-        if (url) return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, task.channelId, url, video.requires_auth, video.content_type) };
+        if (url) return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, task.channelId, url, video.content_type) };
         if (video.status === "completed") {
-            return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, task.channelId, aiApiUrl(config, `/videos/${task.id}/content`), true, "video/mp4") };
+            return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, task.channelId, aiApiUrl(config, `/videos/${task.id}/content`), "video/mp4") };
         }
         // The provider-facing status can lag behind the durable task record.  A
         // completed persisted result is authoritative once it has a result URL,
@@ -466,7 +465,7 @@ async function pollStoredVideoTask(config: AiConfig, task: VideoGenerationTask, 
         if (status === "SUCCESS") {
             const resultUrl = payload.data.result_url?.trim();
             if (!resultUrl) return { status: "failed", error: "视频任务已完成，但持久任务记录没有结果地址" };
-            return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, task.channelId, resultUrl, payload.data.requires_auth, payload.data.content_type) };
+            return { status: "completed", result: resolveOpenAIVideoResult(config, task.model, task.channelId, resultUrl, payload.data.content_type) };
         }
         if (status === "FAILURE") return { status: "failed", error: readApiErrorMessage(payload.data.fail_reason) || payload.data.fail_reason || "视频生成失败" };
         return { status: "pending" };
@@ -485,12 +484,13 @@ function resolveStoredVideoResultUrl(config: AiConfig, resultUrl: string) {
     }
 }
 
-function resolveOpenAIVideoResult(config: AiConfig, model: string, channelId: string | undefined, resultUrl: string, requiresAuth: boolean | undefined, contentType = "video/mp4"): VideoGenerationResult {
+function resolveOpenAIVideoResult(config: AiConfig, model: string, channelId: string | undefined, resultUrl: string, contentType = "video/mp4"): VideoGenerationResult {
     const resolvedUrl = resolveStoredVideoResultUrl(config, resultUrl);
-    return { url: resolvedUrl, model, ...(channelId ? { channelId } : {}), requiresAuth: requiresAuth ?? isAuthenticatedVideoContentUrl(config, resolvedUrl), mimeType: contentType || "video/mp4" };
+    const authenticatedContent = isAuthenticatedVideoContentUrl(config, resolvedUrl);
+    return { url: resolvedUrl, model, ...(channelId ? { channelId } : {}), requiresAuth: authenticatedContent, mimeType: contentType || "video/mp4" };
 }
 
-function isAuthenticatedVideoContentUrl(config: AiConfig, resultUrl: string) {
+export function isAuthenticatedVideoContentUrl(config: AiConfig, resultUrl: string) {
     try {
         const target = new URL(resultUrl);
         const api = new URL(buildApiUrl(config.baseUrl, "/"));
@@ -498,6 +498,10 @@ function isAuthenticatedVideoContentUrl(config: AiConfig, resultUrl: string) {
     } catch {
         return false;
     }
+}
+
+export function shouldUseAuthenticatedVideoDownload(config: AiConfig, result: VideoGenerationResult) {
+    return Boolean(result.url && isAuthenticatedVideoContentUrl(config, result.url));
 }
 
 async function createSeedanceTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[], options?: RequestOptions): Promise<VideoGenerationTask> {

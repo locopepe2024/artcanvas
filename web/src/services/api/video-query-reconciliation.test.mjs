@@ -1,8 +1,22 @@
 import { describe, expect, test } from "bun:test";
 
-import { isRetryableVideoContentStatus, normalizeVideoSafetyFailureMessage, readApiErrorMessage, readProviderFailureMessage, readReportedOpenAIVideoFailure, reconcileReportedVideoFailure, shouldReconcileStoredVideoTaskQuery, videoTaskIdFromResultUrl } from "./video.ts";
+import { isAuthenticatedVideoContentUrl, isRetryableVideoContentStatus, normalizeVideoSafetyFailureMessage, readApiErrorMessage, readProviderFailureMessage, readReportedOpenAIVideoFailure, reconcileReportedVideoFailure, shouldReconcileStoredVideoTaskQuery, shouldUseAuthenticatedVideoDownload, videoTaskIdFromResultUrl } from "./video.ts";
 
 describe("video task query reconciliation", () => {
+    const uniArtConfig = { baseUrl: "https://uniart.fun/v1" };
+
+    test("uses authentication only for UniArt protected content URLs", () => {
+        const protectedResult = { url: "https://uniart.fun/v1/videos/task_abc123/content", requiresAuth: true };
+        const signedCacheResult = {
+            url: "https://storage.iyishow.com/uniart-cache/videos/2026/09/09/task_abc123/result.mp4?sign=abc",
+            requiresAuth: true,
+        };
+        expect(isAuthenticatedVideoContentUrl(uniArtConfig, protectedResult.url)).toBe(true);
+        expect(shouldUseAuthenticatedVideoDownload(uniArtConfig, protectedResult)).toBe(true);
+        expect(isAuthenticatedVideoContentUrl(uniArtConfig, signedCacheResult.url)).toBe(false);
+        expect(shouldUseAuthenticatedVideoDownload(uniArtConfig, signedCacheResult)).toBe(false);
+    });
+
     test("retries transient protected video content responses", () => {
         expect(isRetryableVideoContentStatus(502)).toBe(true);
         expect(isRetryableVideoContentStatus(503)).toBe(true);

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.14.5 - 2026-09-10
+
+- [修复] 公开签名视频缓存地址不再误走带 Authorization 的跨域下载流程。
+
 ## v0.14.4 - 2026-09-10
 
 - [修复] 异步图片任务恢复测试改为兼容 GitHub Node strip-only 运行环境，避免 TypeScript enum 导入导致 CI 失败；生产恢复逻辑不变。

@@ -28,6 +28,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 - 浏览器配额清理提示：只有 IndexedDB 明确返回 `QuotaExceededError` 时才应显示“浏览器存储空间已满”；选择“暂不清理”不得删除任何记录或中断已创建任务，选择“清理历史并继续”只能删除成功/失败的视频历史及其未被资产、画布、图片历史、当前任务或运行中任务引用的本地缓存，随后重试当前记录保存。没有可清理历史或清理后仍不足时应保留 task ID 并继续查询，不得把任务标记为生成失败。
 - Canvas 视频结果同源代理：UniArt 返回 `storage.iyishow.com/uniart-cache/videos/*` 签名结果但 CDN 未提供 CORS 时，画布应改从 `/api/video-result-proxy/videos/*` 同源下载并支持 HTTP Range；代理只能访问固定 UniArt 视频缓存目录，不接受任意目标 URL，也不得携带 Unitoken。浏览器本地缓存写入失败时应直接使用该同源地址播放，而不是将成功任务标记为下载失败。
 - Canvas 鉴权视频内容代理：UniArt 返回 `result_url=/v1/videos/{task_id}/content` 且 `requires_auth:true` 时，浏览器应携带当前 Unitoken 请求 Canvas 同源 `/api/video-content-proxy/{task_id}`；Canvas 服务端只允许固定 task ID 请求 UniArt 内容接口，跟随 307 时仅允许 `storage.iyishow.com/uniart-cache/videos/*` 并移除 Authorization。完整下载和 Range 请求均应成功，Token 不得转发给 CDN。
+- UniArt 返回带 `requires_auth:true` 的公开签名缓存 URL 时，Canvas 应按缓存 URL处理并通过 `/api/video-result-proxy/` 下载，不得直接向 CDN 发送 Authorization。
 - WAV 参考音频上传：选择浏览器识别为 `audio/wave`、`audio/wav`、`audio/x-wav` 或 `audio/vnd.wave` 的 `.wav` 文件时，`POST /api/video-assets` 应返回 200 并生成 `.wav` 临时素材；不支持的格式、超限文件或无效内容应显示服务端具体错误，不再只显示 `Request failed with status code 400`。
 - MP4 通用二进制识别：当运行环境将合法 MP4 文件头识别为 `application/octet-stream` 时，只有浏览器声明 `video/mp4`、`application/mp4` 或 `video/x-m4v` 且文件扩展名为 `.mp4` 才允许上传，读取临时素材必须固定返回 `Content-Type: video/mp4`；MIME 与扩展名不匹配的伪装文件仍应返回 400。
 - 视频创作台素材 `@` 菜单：上传图片、视频或音频后，在提示词任意位置输入 `@`（包括紧接中文文字）应弹出当前素材缩略图列表；点击或使用方向键加回车选择后插入连续 `@n`，编号始终按图片 → 视频 → 音频排列，首尾帧菜单显示角色文案但提交文本仍为标准 `@1`、`@2`。删除或重排素材后，菜单及高亮编号应同步刷新。
