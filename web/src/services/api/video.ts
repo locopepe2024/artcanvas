@@ -176,6 +176,9 @@ function videoPluginResult(result: unknown): VideoGenerationResult {
 export async function storeGeneratedVideo(result: VideoGenerationResult, config?: AiConfig, options?: RequestOptions): Promise<UploadedFile> {
     if (result.blob) return uploadMediaFile(result.blob, "video");
     if (result.url) {
+        if (!config && result.requiresAuth && canvasVideoResultUrl(result.url) === result.url) {
+            throw new Error("视频已生成，但缺少下载鉴权配置");
+        }
         if (config && shouldUseAuthenticatedVideoDownload(config, result)) {
             const requestConfig = videoDownloadRequestConfig(config, result);
             const downloadUrl = authenticatedVideoDownloadUrl(requestConfig, result.url);

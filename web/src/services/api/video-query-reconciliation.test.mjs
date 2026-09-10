@@ -13,6 +13,7 @@ describe("video task query reconciliation", () => {
         };
         expect(isAuthenticatedVideoContentUrl(uniArtConfig, protectedResult.url)).toBe(true);
         expect(shouldUseAuthenticatedVideoDownload(uniArtConfig, protectedResult)).toBe(true);
+        expect(shouldUseAuthenticatedVideoDownload(uniArtConfig, { ...protectedResult, requiresAuth: false })).toBe(true);
         expect(isAuthenticatedVideoContentUrl(uniArtConfig, signedCacheResult.url)).toBe(false);
         expect(shouldUseAuthenticatedVideoDownload(uniArtConfig, signedCacheResult)).toBe(false);
     });
