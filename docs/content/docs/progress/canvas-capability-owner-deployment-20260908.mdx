@@ -41,6 +41,8 @@ description: Canvas 视频能力读取、视频代理和生产切换证据
 - 2026-09-09 针对持久任务已成功但 Canvas 仍显示生成中的问题，新增轮询对账：上游 `/v1/videos/:task_id` 仍为 pending 时，也查询 `/video/generations/:task_id`，发现 `SUCCESS + result_url` 即收敛到结果。
 - 该修复镜像为 `artcanvas:uniart-video-reconcile-20260909`，已通过临时端口 `3013` 首页验证并切换到正式端口 `3012`；当前公网 bundle 为 `index-CSi9fBSO.js`，容器 restart count 为 0。旧镜像保留为 `infinite-canvas-capability-owner-rollback-20260909-reconcile`。
 - 2026-09-10 针对受保护视频内容代理的临时 502/503/504，新增最多 5 分钟退避重试；镜像为 `artcanvas:uniart-video-download-retry-20260910`，已通过 `3013` 临时容器验证并切换正式容器，旧镜像保留为 `infinite-canvas-capability-owner-rollback-20260910-download`。
+- 2026-09-12 发布 `v0.14.8`（commit `d5daa46437fe7d7c81d68995ce52c26d4c31e710`），修正参考视频时长毫秒取整，避免 15 秒边界因媒体容器精度被误判为超限；镜像 `artcanvas:v0.14.8-d5daa46` 先经 `3013` 临时容器验证，再切换正式 `3012`。
+- 切换后正式容器状态为 running、restart count 为 0，asset-server 内部 `/health` 返回 `{"ok":true}`；旧镜像保留为 `infinite-canvas-capability-owner-rollback-v0147` 并已停止，公网入口返回 bundle `index-DcRNwTlq.js`。
 - 2026-09-10 修复公开签名视频缓存 URL 被错误标记为需要鉴权时的下载失败：只有 UniArt `/v1/videos/{task_id}/content` URL 进入鉴权代理，`storage.iyishow.com/uniart-cache/videos/*` 统一走同源缓存代理；本次源码版本为 `v0.14.5`，真实付费视频任务仍待人工验证。
 - 2026-09-10 增量发布 `v0.14.6`，保留上述 URL 判定，并在无 API 配置时继续对真正受保护的 `/content` 地址返回明确鉴权错误。
 
