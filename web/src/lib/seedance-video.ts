@@ -139,7 +139,7 @@ export function seedanceVideoReferenceError(videos: ReferenceVideo[]) {
         if (!SEEDANCE_VIDEO_MIME_TYPES.includes(video.type)) return `${label} 仅支持 mp4/mov 格式`;
         if (video.bytes && video.bytes > SEEDANCE_REFERENCE_LIMITS.videoMaxBytes) return `${label} 超过 200MB，请压缩后再上传`;
         if (video.durationMs) {
-            if (video.durationMs < 2000 || video.durationMs > 15000) return `${label} 时长需要在 2-15 秒之间`;
+            if (video.durationMs < 2000 || video.durationMs > VIDEO_REFERENCE_MAX_DURATION_MS + VIDEO_REFERENCE_DURATION_TOLERANCE_MS) return `${label} 时长需要在 2-15 秒之间`;
             totalDurationMs += video.durationMs;
         }
         if (video.width && video.height) {
@@ -150,8 +150,10 @@ export function seedanceVideoReferenceError(videos: ReferenceVideo[]) {
             if (pixels < 640 * 640 || pixels > 3326 * 2494) return `${label} 总像素需要在 409600-8295044 之间`;
         }
     }
-    if (totalDurationMs > 15000) return "Seedance 参考视频总时长不能超过 15 秒";
+    if (totalDurationMs > VIDEO_REFERENCE_MAX_DURATION_MS + VIDEO_REFERENCE_DURATION_TOLERANCE_MS) return "Seedance 参考视频总时长不能超过 15 秒";
     return "";
 }
 
 export const seedanceVideoReferenceHint = "参考视频需为 mp4/mov，H.264/H.265，FPS 24-60；含真人人脸资产请使用火山授权 asset:// 资产。";
+export const VIDEO_REFERENCE_MAX_DURATION_MS = 15000;
+export const VIDEO_REFERENCE_DURATION_TOLERANCE_MS = 100;

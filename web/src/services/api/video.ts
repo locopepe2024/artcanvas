@@ -6,7 +6,7 @@ import { getMediaBlob, uploadMediaFile, type UploadedFile } from "@/services/fil
 import { imageToDataUrl } from "@/services/image-storage";
 import { isCanvasVideoAssetUrl, uploadVideoReferenceAsset } from "@/services/video-reference-assets";
 import { canvasAuthenticatedVideoResultUrl, canvasVideoResultUrl } from "@/services/video-result-proxy";
-import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS } from "@/lib/seedance-video";
+import { boolConfig, buildSeedancePromptText, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceVideoReferenceError, SEEDANCE_REFERENCE_LIMITS, VIDEO_REFERENCE_DURATION_TOLERANCE_MS, VIDEO_REFERENCE_MAX_DURATION_MS } from "@/lib/seedance-video";
 import { resolveUniArtReferenceLimits, resolveUniArtVideoParams, uniArtVideoParamsError, uniArtVideoSubmissionError, type UniArtVideoCapability } from "@/lib/uniart-video";
 import { buildApiUrl, decodeChannelModel, encodeChannelModel, isChannelModelValue, modelCapabilityOf, modelOptionName, normalizeModelOptionValue, resolveModelRequestConfig, resolveModelScript, videoCapabilityOf, type AiConfig } from "@/stores/use-config-store";
 import { runModelPlugin } from "./model-plugin";
@@ -332,7 +332,7 @@ async function buildUniArtOfficialVideoRequest(
     if (mode === "image_reference" && !references.length) throw new Error("图片参考模式至少需要 1 张图片");
     if (mode === "first_last_frames" && (references.length !== 2 || videoReferences.length || audioReferences.length)) throw new Error("首尾帧模式需要且只能使用 2 张图片，第 1 张为首帧，第 2 张为尾帧");
     const inputVideoDurationMs = videoReferences.reduce((total, item) => total + Math.max(0, item.durationMs || 0), 0);
-    if (inputVideoDurationMs > 15000) throw new Error("参考视频总时长不能超过 15 秒");
+    if (inputVideoDurationMs > VIDEO_REFERENCE_MAX_DURATION_MS + VIDEO_REFERENCE_DURATION_TOLERANCE_MS) throw new Error("参考视频总时长不能超过 15 秒");
 
     const [imageURLs, videoURLs, audioURLs] = await Promise.all([
         Promise.all(references.map((image) => resolveReferenceImageUrl(image, options))),
