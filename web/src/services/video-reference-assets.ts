@@ -67,7 +67,9 @@ function readVideoMetadata(url: string) {
             if (settled) return;
             settled = true;
             window.clearTimeout(timeout);
-            resolve({ width: video.videoWidth || undefined, height: video.videoHeight || undefined, durationMs: Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : undefined });
+            // Do not round an exact-limit duration up because of container
+            // precision (15.0004s must remain 15000ms for a 15s limit).
+            resolve({ width: video.videoWidth || undefined, height: video.videoHeight || undefined, durationMs: Number.isFinite(video.duration) ? Math.floor(video.duration * 1000) : undefined });
         };
         const timeout = window.setTimeout(done, 5000);
         video.onloadedmetadata = done;

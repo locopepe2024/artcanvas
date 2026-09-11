@@ -73,7 +73,11 @@ function readVideoMeta(url: string) {
             if (settled) return;
             settled = true;
             window.clearTimeout(timeout);
-            resolve({ width: video.videoWidth || 1280, height: video.videoHeight || 720, durationMs: Number.isFinite(video.duration) ? Math.round(video.duration * 1000) : undefined });
+            // Media durations can be a fraction of a millisecond over the
+            // container's advertised boundary (for example 15.0004s). Floor
+            // the measurement so an exact-limit reference is not rejected by
+            // floating-point/container precision noise.
+            resolve({ width: video.videoWidth || 1280, height: video.videoHeight || 720, durationMs: Number.isFinite(video.duration) ? Math.floor(video.duration * 1000) : undefined });
         };
         const timeout = window.setTimeout(done, 5000);
         video.onloadedmetadata = done;
