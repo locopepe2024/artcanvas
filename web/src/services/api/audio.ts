@@ -111,7 +111,7 @@ function readApiErrorMessage(value: unknown): string {
             if (inner === value && typeof parsed === "object" && Object.keys(parsed).length === 0) return "";
             return inner;
         } catch {
-            if (/<[a-z][\s\S]*>/i.test(value)) return `服务返回了 HTML 错误页面（${value.slice(0, 80)}...）`;
+            if (isHtmlErrorPage(value)) return `服务返回了 HTML 错误页面（${value.slice(0, 80)}...）`;
             return value;
         }
     }
@@ -128,6 +128,12 @@ function readApiErrorMessage(value: unknown): string {
         readApiErrorMessage(payload.detail) ||
         ""
     );
+}
+
+function isHtmlErrorPage(value: string) {
+    const normalized = value.trim();
+    return /^(?:<!doctype\s+html\b|<html\b|<head\b|<body\b)/i.test(normalized) ||
+        /<title\b[^>]*>[^<]*(?:error|bad gateway|request entity|nginx)/i.test(normalized);
 }
 
 function readAxiosError(error: unknown, fallback: string) {

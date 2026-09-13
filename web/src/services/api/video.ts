@@ -692,7 +692,7 @@ export function readApiErrorMessage(value: unknown): string {
             if (inner === value && typeof parsed === "object" && Object.keys(parsed).length === 0) return "";
             return inner;
         } catch {
-            if (/<[a-z][\s\S]*>/i.test(value)) return `服务返回了 HTML 错误页面（${value.slice(0, 80)}...）`;
+            if (isHtmlErrorPage(value)) return `服务返回了 HTML 错误页面（${value.slice(0, 80)}...）`;
             return isGenericVideoErrorMessage(value) ? "" : value;
         }
     }
@@ -702,6 +702,12 @@ export function readApiErrorMessage(value: unknown): string {
     if (providerFailure) return providerFailure;
     // 具体 provider message 优先于顶层 llm-error/provider_task_failed 等泛化字段。
     return [payload.error, payload.detail, payload.data, payload.fail_reason, payload.message, payload.msg].map(readApiErrorMessage).find(Boolean) || "";
+}
+
+function isHtmlErrorPage(value: string) {
+    const normalized = value.trim();
+    return /^(?:<!doctype\s+html\b|<html\b|<head\b|<body\b)/i.test(normalized) ||
+        /<title\b[^>]*>[^<]*(?:error|bad gateway|request entity|nginx)/i.test(normalized);
 }
 
 function isGenericVideoErrorMessage(value: string) {

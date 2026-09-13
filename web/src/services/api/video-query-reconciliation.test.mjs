@@ -90,6 +90,12 @@ describe("video task query reconciliation", () => {
         ).toBe("The parameter `content[1]` is not valid");
     });
 
+    test("does not misclassify provider audio placeholders as an HTML page", () => {
+        const reason = '{"code":"invalid_audio_ref","message":"request 1: audio reference \\\"<Audio 1>\\\" has no audio slot; got 0 audio materials"}';
+        expect(readApiErrorMessage(reason)).toBe('request 1: audio reference "<Audio 1>" has no audio slot; got 0 audio materials');
+        expect(readApiErrorMessage("<html><body><h1>413 Request Entity Too Large</h1></body></html>")).toContain("服务返回了 HTML 错误页面");
+    });
+
     test("maps content safety failures and recovers the task id from content URLs", () => {
         expect(normalizeVideoSafetyFailureMessage('video content safety blocked: 451 {"error_code":"video_unsafe"}')).toBe("视频内容安全审核未通过，请修改提示词或随机种子后重试");
         expect(readProviderFailureMessage({ noteType: "PROVIDER_FAILURE", failureReason: { errorCode: "PROVIDER_MODERATION_ERROR" } })).toBe("视频内容安全审核未通过，请修改提示词或随机种子后重试");

@@ -392,7 +392,7 @@ function readApiErrorMessage(value: unknown): string {
             return inner;
         } catch {
             // 检查是否是 HTML 错误页面
-            if (/<[a-z][\s\S]*>/i.test(value)) return `服务返回了 HTML 错误页面（${value.slice(0, 80)}...）`;
+            if (isHtmlErrorPage(value)) return `服务返回了 HTML 错误页面（${value.slice(0, 80)}...）`;
             return value;
         }
     }
@@ -410,6 +410,12 @@ function readApiErrorMessage(value: unknown): string {
         readApiErrorMessage(payload.detail) ||
         ""
     );
+}
+
+function isHtmlErrorPage(value: string) {
+    const normalized = value.trim();
+    return /^(?:<!doctype\s+html\b|<html\b|<head\b|<body\b)/i.test(normalized) ||
+        /<title\b[^>]*>[^<]*(?:error|bad gateway|request entity|nginx)/i.test(normalized);
 }
 
 function readAxiosError(error: unknown, fallback: string) {
@@ -1104,7 +1110,14 @@ function channelModelFromApiModel(model: ApiModel): ChannelModel | null {
     const name = model.id?.trim();
     if (!name) return null;
     const endpoints = model.supported_endpoint_types || [];
-    const capability: ModelCapability = endpoints.includes("openai-video") ? "video" : endpoints.includes("image-generation") ? "image" : guessCapability(name);
+    // UniArt image SKUs may publish generation, edit, or both endpoints.
+    // Either image endpoint makes the model selectable in the image
+    // workbench; the endpoint-specific operation is resolved when submitting.
+    const capability: ModelCapability = endpoints.includes("openai-video")
+        ? "video"
+        : endpoints.some((endpoint) => endpoint === "image-generation" || endpoint === "image-edit")
+          ? "image"
+          : guessCapability(name);
     const videoCapability = normalizeVideoCapability({
         modes: (model.video_capability?.modes || []).map((mode) => ({ id: mode.id as VideoCapabilityModeId, inputTypes: (mode.input_types || []) as VideoCapability["modes"][number]["inputTypes"] })),
         resolutions: model.video_capability?.resolutions,
