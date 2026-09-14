@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { App } from "antd";
 
-import { fetchChannelModels } from "@/services/api/image";
-import { createModelChannel, useConfigStore } from "@/stores/use-config-store";
+import { fetchChannelModels, isUniArtApiUrl } from "@/services/api/image";
+import { createModelChannel, reconcileChannelModels, useConfigStore } from "@/stores/use-config-store";
 import { usePromptSourceScheduler } from "@/hooks/use-prompt-source-scheduler";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
@@ -17,7 +17,7 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     usePromptSourceScheduler();
 
     useEffect(() => {
-        const refreshableChannels = config.channels.filter((channel) => channel.baseUrl.trim() && channel.apiKey.trim() && channel.models.some((model) => model.capability === "video"));
+        const refreshableChannels = config.channels.filter((channel) => channel.baseUrl.trim() && channel.apiKey.trim() && (isUniArtApiUrl(channel.baseUrl) || channel.models.some((model) => model.capability === "video")));
         if (!refreshableChannels.length) return;
         const refreshKey = refreshableChannels.map((channel) => `${channel.id}|${channel.baseUrl}|${channel.models.map((model) => model.name).sort().join(",")}`).sort().join(";");
         if (refreshedCapabilityKey.current === refreshKey) return;
@@ -42,10 +42,7 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
                 if (!models) return channel;
                 return {
                     ...channel,
-                    models: channel.models.map((model) => {
-                        const latest = models.get(model.name);
-                        return latest ? { ...latest, script: model.script } : model;
-                    }),
+                    models: reconcileChannelModels(channel.models, Array.from(models.values()), isUniArtApiUrl(channel.baseUrl) && models.size > 0),
                 };
             });
             useConfigStore.getState().updateConfig("channels", nextChannels);

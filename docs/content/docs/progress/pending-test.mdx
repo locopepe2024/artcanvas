@@ -5,6 +5,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- UniArt 新模型自动同步：UniArt `/v1/models` 新增图片 SKU 后刷新 Canvas，已配置的 UniArt 渠道应自动同步完整模型目录，并按 `supported_endpoint_types` 将新模型放入生图工作台；无需再次进入渠道配置手动勾选。已有模型的自定义调用脚本必须保留，非 UniArt 渠道仍只更新已选择模型，不自动扩大模型集合。
 - 视频创作台终态与日志持久化隔离：当 `/api/video-content-proxy/:task_id` 已成功返回完整视频，但浏览器 `video_generation_logs` IndexedDB 写入阻塞或失败时，当前结果应立即结束“生成中”并显示成功视频；历史保存失败可以提示警告，但不得继续锁住生成按钮或重新提交任务。
 - H3 提示词优化启用状态：选择 `minimax-h3-vip` 或 `minimax-h3-discount` 后，即使页面刚打开、详细 `video_capability` 仍在后台刷新，视频创作台、普通视频节点和生成配置节点的「提示词优化」入口也应立即可用；实际优化调用的比例和时长仍必须来自 UniArt 已发布能力，能力缺失时应给出明确错误而不得本地猜测。
 - UniArt GPT Image 2.5 蒙版编辑：选择 Flare 或 Sunburst，添加参考图并绘制蒙版后提交；Canvas 应先将参考图和蒙版分别托管为 URL，再向 `/v1/images/edits` 发送 JSON `images` 与 `mask`，不得显示“URL 素材接口暂不支持蒙版编辑”。蒙版与第一张参考图尺寸一致时任务应正常创建并完成。

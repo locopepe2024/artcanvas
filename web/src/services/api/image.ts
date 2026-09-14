@@ -137,7 +137,7 @@ export function resolveUniArtSemanticImageOutput(model: string, quality: string,
     return { resolution, aspect_ratio: aspectRatio };
 }
 
-function isUniArtApiUrl(value: string) {
+export function isUniArtApiUrl(value: string) {
     try {
         const hostname = new URL(value).hostname.toLowerCase();
         return hostname === "uniart.fun" || hostname.endsWith(".uniart.fun");

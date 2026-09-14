@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- [修复] Canvas 启动时以 UniArt `/v1/models` 同步完整模型目录，新发布图片 SKU 无需重新手动勾选即可进入对应工作台。
 - [修复] 生图工作台将 UniArt 发布的 `image-generation`、`image-edit` 能力统一识别为图片模型，避免新图片 SKU 未出现在模型列表。
 
 ## v0.14.9 - 2026-09-12

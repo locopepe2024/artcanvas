@@ -305,6 +305,17 @@ export function normalizeChannelModels(models: Array<string | ChannelModel> | un
     return result;
 }
 
+export function reconcileChannelModels(current: ChannelModel[], fetched: ChannelModel[], includeNewModels = false) {
+    const currentByName = new Map(current.map((model) => [model.name, model]));
+    const fetchedByName = new Map(fetched.map((model) => [model.name, model]));
+    const source = includeNewModels ? fetched : current;
+    return source.map((model) => {
+        const latest = fetchedByName.get(model.name);
+        const existing = currentByName.get(model.name);
+        return latest ? { ...latest, script: existing?.script } : model;
+    });
+}
+
 export function normalizeVideoCapability(value: VideoCapability | undefined): VideoCapability | undefined {
     const allowedModes = new Set<VideoCapabilityModeId>(["text_to_video", "image_to_video", "image_reference", "first_last_frame", "omni_reference"]);
     const allowedInputs = new Set<"text" | "image" | "video" | "audio">(["text", "image", "video", "audio"]);
