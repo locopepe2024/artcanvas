@@ -49,6 +49,8 @@ description: Canvas 视频能力读取、视频代理和生产切换证据
 - 2026-09-10 增量发布 `v0.14.6`，保留上述 URL 判定，并在无 API 配置时继续对真正受保护的 `/content` 地址返回明确鉴权错误。
 - 2026-09-13 部署 `dddb263`：Canvas 将 UniArt `image-generation` 和 `image-edit` endpoint 均映射为生图工作台能力，避免新图片 SKU 仅发布编辑能力时从模型列表中消失；同时保留 provider 占位符错误信息，避免误判为 HTML 错误页。新镜像为 `artcanvas:uniart-image-model-map-20260913`，先在 3013 临时容器验证首页 200、bundle 能力标识和零重启，再切换正式 3012。
 - 切换后正式容器运行中、restart count 为 0，Nginx 配置检查通过，公网首页返回 200，公网 bundle 为 `index-CfOOqEA7.js` 且包含 `image-generation`、`image-edit`；旧镜像 `artcanvas:v0.14.9-bd8eb6e` 保留为 `infinite-canvas-capability-owner-rollback-20260913-image-map` 并已停止。
+- 2026-09-14 修复新 UniArt 模型刷新后仍不进入工作台的问题：此前启动刷新只更新已保存模型，不会加入新模型；现在 UniArt 渠道启动时以 `/v1/models` 返回目录同步新增模型，同时保留已有模型脚本，非 UniArt 渠道仍维持已选择模型边界。提交 `f8ed9b1`，镜像为 `artcanvas:uniart-model-sync-20260914`。
+- 该镜像先在 3013 临时容器验证首页 200、模型同步逻辑和图片 endpoint 标识，再切换正式 3012；正式容器运行中、restart count 为 0，公网首页返回 200，bundle 为 `index-CbK-B63j.js`。切换前镜像 `artcanvas:uniart-image-model-map-20260913` 保留为 `infinite-canvas-capability-owner-rollback-20260914-pre-model-sync` 并已停止。
 
 ## Rollback boundary
 
