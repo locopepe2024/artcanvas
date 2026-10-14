@@ -22,7 +22,7 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@modelcontextprotocol/sdk": "^1.31.0",
     "@openai/codex": "0.146.0",
     "express": "^5.1.0",
     "strip-ansi": "7.2.0",
